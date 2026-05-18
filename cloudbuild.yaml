@@ -1,0 +1,24 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', '$_IMAGE', '.']
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '$_IMAGE']
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - '$_SERVICE'
+      - '--image'
+      - '$_IMAGE'
+      - '--region'
+      - '$_REGION'
+      - '--platform'
+      - 'managed'
+      - '--quiet'
+options:
+  substitutionOption: 'ALLOW_LOOSE'
+substitutions:
+  _IMAGE: 'us-central1-docker.pkg.dev/$PROJECT_ID/apps/api-service:latest'
+  _SERVICE: 'api-service'
+  _REGION: 'us-central1'
