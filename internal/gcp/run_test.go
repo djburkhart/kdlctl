@@ -40,6 +40,67 @@ func (f *fakeRunUpdateOperation) Wait(ctx context.Context, opts ...gax.CallOptio
 	return f.waitFn(ctx, opts...)
 }
 
+func TestNewRunClient(t *testing.T) {
+	t.Parallel()
+
+	originalFactory := newRunServiceClient
+	t.Cleanup(func() {
+		newRunServiceClient = originalFactory
+	})
+
+	t.Run("success", func(t *testing.T) {
+		fakeClient := &fakeRunServiceClient{}
+		newRunServiceClient = func(context.Context) (runServiceAPI, error) {
+			return fakeClient, nil
+		}
+
+		client, err := NewRunClient(context.Background())
+		require.NoError(t, err)
+		require.NotNil(t, client)
+		assert.Same(t, fakeClient, client.client)
+	})
+
+	t.Run("error", func(t *testing.T) {
+		newRunServiceClient = func(context.Context) (runServiceAPI, error) {
+			return nil, errors.New("boom")
+		}
+
+		client, err := NewRunClient(context.Background())
+		require.Error(t, err)
+		assert.Nil(t, client)
+		assert.ErrorContains(t, err, "create cloud run client")
+	})
+}
+
+func TestNewRunClientSequential(t *testing.T) {
+	originalFactory := newRunServiceClient
+	t.Cleanup(func() {
+		newRunServiceClient = originalFactory
+	})
+
+	newRunServiceClient = func(context.Context) (runServiceAPI, error) {
+		return &fakeRunServiceClient{}, nil
+	}
+
+	client, err := NewRunClient(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, client)
+}
+
+func TestRunClientClose(t *testing.T) {
+	t.Parallel()
+
+	client := &RunClient{
+		client: &fakeRunServiceClient{
+			closeFn: func() error { return errors.New("boom") },
+		},
+	}
+
+	err := client.Close()
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "boom")
+}
+
 func TestRunClientRollbackTraffic(t *testing.T) {
 	t.Parallel()
 

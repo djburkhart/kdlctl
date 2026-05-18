@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/nats-io/nats.go"
+	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -80,6 +81,24 @@ func (m *mockCloudBuildClient) SubmitManagedResourceBuild(ctx context.Context, r
 	return result, args.Error(1)
 }
 
+type errWriter struct{}
+
+func (errWriter) Write([]byte) (int, error) {
+	return 0, errors.New("boom")
+}
+
+type failAfterWriter struct {
+	writes int
+}
+
+func (w *failAfterWriter) Write(p []byte) (int, error) {
+	w.writes++
+	if w.writes > 1 {
+		return 0, errors.New("boom")
+	}
+	return len(p), nil
+}
+
 func cliFixturePath(parts ...string) string {
 	base := []string{"..", "..", "examples"}
 	return filepath.Join(append(base, parts...)...)
@@ -91,11 +110,17 @@ func resetCLIState(t *testing.T) {
 	originalNATSFactory := newNATSClient
 	originalCloudBuildFactory := newCloudBuildClient
 	originalRunFactory := newRunClient
+	originalExitFunc := exitFunc
+	originalStderrWriter := stderrWriter
+	originalRootCommandFactory := rootCommandFactory
 	viper.Reset()
 	t.Cleanup(func() {
 		newNATSClient = originalNATSFactory
 		newCloudBuildClient = originalCloudBuildFactory
 		newRunClient = originalRunFactory
+		exitFunc = originalExitFunc
+		stderrWriter = originalStderrWriter
+		rootCommandFactory = originalRootCommandFactory
 		viper.Reset()
 	})
 }
@@ -110,6 +135,15 @@ func executeCommand(t *testing.T, cmdArgs ...string) (string, error) {
 	cmd.SetArgs(cmdArgs)
 	err := cmd.Execute()
 	return stdout.String(), err
+}
+
+func executeSpecificCommand(t *testing.T, cmd *cobra.Command, args ...string) error {
+	t.Helper()
+
+	cmd.SetOut(errWriter{})
+	cmd.SetErr(errWriter{})
+	cmd.SetArgs(args)
+	return cmd.Execute()
 }
 
 func TestLoadProjectConfigAppliesOverrides(t *testing.T) {
@@ -139,6 +173,30 @@ func TestEnsureFileDoesNotExistAndWriteFile(t *testing.T) {
 	require.NoError(t, ensureFileDoesNotExist(path, true))
 }
 
+func TestWriteFileReturnsErrorWhenParentIsAFile(t *testing.T) {
+	resetCLIState(t)
+
+	root := t.TempDir()
+	parentFile := filepath.Join(root, "parent")
+	require.NoError(t, os.WriteFile(parentFile, []byte("not-a-directory"), 0o644))
+
+	err := writeFile(filepath.Join(parentFile, "child.txt"), "payload")
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "create directory")
+}
+
+func TestWriteFileReturnsErrorWhenTargetIsDirectory(t *testing.T) {
+	resetCLIState(t)
+
+	root := t.TempDir()
+	targetDir := filepath.Join(root, "output")
+	require.NoError(t, os.MkdirAll(targetDir, 0o755))
+
+	err := writeFile(targetDir, "payload")
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "write")
+}
+
 func TestInitCommandCreatesStarterFiles(t *testing.T) {
 	resetCLIState(t)
 
@@ -158,6 +216,128 @@ func TestInitCommandCreatesStarterFiles(t *testing.T) {
 	assert.FileExists(t, filepath.Join(tempDir, "examples", "deploy.kdl"))
 }
 
+func TestInitCommandForceOverwritesStarterFiles(t *testing.T) {
+	resetCLIState(t)
+
+	wd, err := os.Getwd()
+	require.NoError(t, err)
+	tempDir := t.TempDir()
+	require.NoError(t, os.Chdir(tempDir))
+	t.Cleanup(func() {
+		_ = os.Chdir(wd)
+	})
+
+	require.NoError(t, os.WriteFile("deploy.kdl", []byte("old"), 0o644))
+	require.NoError(t, os.WriteFile("cloudbuild.yaml", []byte("old"), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join("examples"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join("examples", "deploy.kdl"), []byte("old"), 0o644))
+
+	_, err = executeCommand(t, "init", "--force")
+	require.NoError(t, err)
+
+	contents, err := os.ReadFile("deploy.kdl")
+	require.NoError(t, err)
+	assert.NotEqual(t, "old", string(contents))
+}
+
+func TestInitCommandFailsWithoutForceWhenStarterFilesExist(t *testing.T) {
+	resetCLIState(t)
+
+	wd, err := os.Getwd()
+	require.NoError(t, err)
+	tempDir := t.TempDir()
+	require.NoError(t, os.Chdir(tempDir))
+	t.Cleanup(func() {
+		_ = os.Chdir(wd)
+	})
+
+	require.NoError(t, os.WriteFile("deploy.kdl", []byte("old"), 0o644))
+
+	_, err = executeCommand(t, "init")
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "already exists")
+}
+
+func TestInitCommandReturnsWriteError(t *testing.T) {
+	resetCLIState(t)
+
+	wd, err := os.Getwd()
+	require.NoError(t, err)
+	tempDir := t.TempDir()
+	require.NoError(t, os.Chdir(tempDir))
+	t.Cleanup(func() {
+		_ = os.Chdir(wd)
+	})
+
+	require.NoError(t, os.WriteFile("examples", []byte("not-a-directory"), 0o644))
+
+	_, err = executeCommand(t, "init")
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "create directory")
+}
+
+func TestInitCommandOutputWriteError(t *testing.T) {
+	resetCLIState(t)
+
+	wd, err := os.Getwd()
+	require.NoError(t, err)
+	tempDir := t.TempDir()
+	require.NoError(t, os.Chdir(tempDir))
+	t.Cleanup(func() {
+		_ = os.Chdir(wd)
+	})
+
+	err = executeSpecificCommand(t, newInitCmd())
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "boom")
+}
+
+func TestExecute(t *testing.T) {
+	resetCLIState(t)
+
+	t.Run("success", func(t *testing.T) {
+		called := false
+		rootCommandFactory = func() *cobra.Command {
+			return &cobra.Command{
+				RunE: func(*cobra.Command, []string) error {
+					called = true
+					return nil
+				},
+			}
+		}
+		exitFunc = func(int) { t.Fatal("unexpected exit") }
+
+		Execute()
+		assert.True(t, called)
+	})
+
+	t.Run("failure", func(t *testing.T) {
+		var stderr bytes.Buffer
+		var exitCode int
+		stderrWriter = &stderr
+		rootCommandFactory = func() *cobra.Command {
+			return &cobra.Command{
+				RunE: func(*cobra.Command, []string) error {
+					return errors.New("boom")
+				},
+			}
+		}
+		exitFunc = func(code int) { exitCode = code }
+
+		Execute()
+		assert.Equal(t, 1, exitCode)
+		assert.Contains(t, stderr.String(), "boom")
+	})
+}
+
+func TestMustBindFlagPanicsOnInvalidFlag(t *testing.T) {
+	resetCLIState(t)
+
+	assert.Panics(t, func() {
+		mustBindFlag("broken", nil)
+	})
+}
+
 func TestWriteJSON(t *testing.T) {
 	resetCLIState(t)
 
@@ -167,6 +347,17 @@ func TestWriteJSON(t *testing.T) {
 
 	require.NoError(t, writeJSON(cmd, map[string]string{"hello": "world"}))
 	assert.JSONEq(t, `{"hello":"world"}`, stdout.String())
+}
+
+func TestWriteJSONError(t *testing.T) {
+	resetCLIState(t)
+
+	cmd := newRootCmd()
+	cmd.SetOut(errWriter{})
+
+	err := writeJSON(cmd, map[string]string{"hello": "world"})
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "boom")
 }
 
 func TestPublishDeployRequestUsesMockNATSClient(t *testing.T) {
@@ -223,6 +414,64 @@ func TestPublishDeployRequestErrors(t *testing.T) {
 		require.Error(t, err)
 		assert.ErrorContains(t, err, "boom")
 		mockClient.AssertExpectations(t)
+	})
+}
+
+func TestDeployCommandRequiresEnvironment(t *testing.T) {
+	resetCLIState(t)
+
+	_, err := executeCommand(t, "deploy")
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "--env is required")
+}
+
+func TestDeployCommandDirectUsesMockCloudBuildClient(t *testing.T) {
+	resetCLIState(t)
+
+	mockClient := &mockCloudBuildClient{}
+	mockClient.On("SubmitCloudRunBuild", mock.Anything, mock.Anything, true).Return(&gcp.BuildResult{
+		ID:     "build-service",
+		Status: "SUCCESS",
+	}, nil).Once()
+	mockClient.On("Close").Return(nil).Once()
+	newCloudBuildClient = func(context.Context) (cloudBuildClient, error) { return mockClient, nil }
+
+	output, err := executeCommand(t,
+		"--file", cliFixturePath("valid", "deploy.kdl"),
+		"deploy",
+		"--env", "dev",
+		"--service", "api-service",
+	)
+	require.NoError(t, err)
+	assert.Contains(t, output, "Deployed cloud-run/api-service with status SUCCESS")
+	mockClient.AssertExpectations(t)
+}
+
+func TestLoadDeployPlan(t *testing.T) {
+	resetCLIState(t)
+
+	viper.Set("file", cliFixturePath("valid", "deploy.kdl"))
+
+	plan, err := loadDeployPlan("dev", "api-service")
+	require.NoError(t, err)
+	require.Len(t, plan.Services, 1)
+	assert.Equal(t, "api-service", plan.Services[0].Name)
+}
+
+func TestLoadDeployPlanErrors(t *testing.T) {
+	resetCLIState(t)
+
+	t.Run("missing env", func(t *testing.T) {
+		_, err := loadDeployPlan("", "")
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "--env is required")
+	})
+
+	t.Run("missing file", func(t *testing.T) {
+		viper.Set("file", filepath.Join(t.TempDir(), "missing.kdl"))
+		_, err := loadDeployPlan("dev", "")
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "read config file")
 	})
 }
 
@@ -291,6 +540,63 @@ func TestSubmitDeployPlanErrors(t *testing.T) {
 		assert.ErrorContains(t, err, "boom")
 		mockClient.AssertExpectations(t)
 	})
+
+	t.Run("resource", func(t *testing.T) {
+		mockClient := &mockCloudBuildClient{}
+		mockClient.On("SubmitManagedResourceBuild", mock.Anything, mock.Anything, true).Return((*gcp.BuildResult)(nil), errors.New("boom")).Once()
+		mockClient.On("Close").Return(nil).Once()
+		newCloudBuildClient = func(context.Context) (cloudBuildClient, error) { return mockClient, nil }
+
+		err := submitDeployPlan(context.Background(), &bytes.Buffer{}, &deploy.DeploymentPlan{
+			ProjectID:   "fixture-gcp-project",
+			Region:      "us-central1",
+			Environment: "production",
+			Resources:   []*types.DeploymentResource{{Kind: types.ResourceKindRedis, Name: "cache"}},
+		}, false)
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "boom")
+		mockClient.AssertExpectations(t)
+	})
+}
+
+func TestSubmitDeployHelpersReturnWriteErrors(t *testing.T) {
+	resetCLIState(t)
+
+	t.Run("service", func(t *testing.T) {
+		mockClient := &mockCloudBuildClient{}
+		mockClient.On("SubmitCloudRunBuild", mock.Anything, mock.Anything, true).Return(&gcp.BuildResult{
+			ID:     "build-service",
+			Status: "SUCCESS",
+		}, nil).Once()
+
+		err := submitServiceDeploys(context.Background(), errWriter{}, mockClient, &deploy.DeploymentPlan{
+			ProjectID:   "fixture-gcp-project",
+			Region:      "us-central1",
+			Environment: "production",
+			Services:    []*types.DeploymentService{{Kind: types.ServiceKindCloudRun, Name: "api"}},
+		}, false)
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "boom")
+		mockClient.AssertExpectations(t)
+	})
+
+	t.Run("resource", func(t *testing.T) {
+		mockClient := &mockCloudBuildClient{}
+		mockClient.On("SubmitManagedResourceBuild", mock.Anything, mock.Anything, true).Return(&gcp.BuildResult{
+			ID:     "build-resource",
+			Status: "SUCCESS",
+		}, nil).Once()
+
+		err := submitResourceDeploys(context.Background(), errWriter{}, mockClient, &deploy.DeploymentPlan{
+			ProjectID:   "fixture-gcp-project",
+			Region:      "us-central1",
+			Environment: "production",
+			Resources:   []*types.DeploymentResource{{Kind: types.ResourceKindRedis, Name: "cache"}},
+		}, false)
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "boom")
+		mockClient.AssertExpectations(t)
+	})
 }
 
 func TestDeployCommandViaNATSUsesMocks(t *testing.T) {
@@ -327,6 +633,61 @@ func TestPlanCommandJSONOutput(t *testing.T) {
 	assert.Contains(t, output, `"name": "api-gateway"`)
 }
 
+func TestPlanCommandTextOutput(t *testing.T) {
+	resetCLIState(t)
+
+	output, err := executeCommand(t,
+		"--file", cliFixturePath("valid", "deploy.kdl"),
+		"plan",
+		"--env", "dev",
+	)
+	require.NoError(t, err)
+	assert.Contains(t, output, "Project: valid-gcp-project")
+	assert.Contains(t, output, "- cloud-run/api-service")
+}
+
+func TestPlanCommandWriteError(t *testing.T) {
+	resetCLIState(t)
+	viper.Set("file", cliFixturePath("valid", "deploy.kdl"))
+
+	err := executeSpecificCommand(t, newPlanCmd(), "--env", "dev")
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "boom")
+}
+
+func TestPlanCommandJSONWriteError(t *testing.T) {
+	resetCLIState(t)
+	viper.Set("file", cliFixturePath("complex", "deploy.kdl"))
+
+	err := executeSpecificCommand(t, newPlanCmd(), "--env", "production", "--json")
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "boom")
+}
+
+func TestPlanCommandRequiresEnvironment(t *testing.T) {
+	resetCLIState(t)
+
+	_, err := executeCommand(t,
+		"--file", cliFixturePath("valid", "deploy.kdl"),
+		"plan",
+	)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "--env is required")
+}
+
+func TestPlanCommandUnknownService(t *testing.T) {
+	resetCLIState(t)
+
+	_, err := executeCommand(t,
+		"--file", cliFixturePath("valid", "deploy.kdl"),
+		"plan",
+		"--env", "dev",
+		"--service", "missing",
+	)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, `no targets matched environment "dev"`)
+}
+
 func TestValidateCommandWithFixture(t *testing.T) {
 	resetCLIState(t)
 
@@ -348,6 +709,58 @@ func TestValidateCommandWholeProject(t *testing.T) {
 	)
 	require.NoError(t, err)
 	assert.Contains(t, output, "Configuration is valid for 2 environments")
+}
+
+func TestValidateCommandWriteErrors(t *testing.T) {
+	resetCLIState(t)
+
+	t.Run("single environment", func(t *testing.T) {
+		viper.Set("file", cliFixturePath("valid", "deploy.kdl"))
+		err := executeSpecificCommand(t, newValidateCmd(), "--env", "dev")
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "boom")
+	})
+
+	t.Run("whole project", func(t *testing.T) {
+		viper.Set("file", cliFixturePath("complex", "deploy.kdl"))
+		err := executeSpecificCommand(t, newValidateCmd())
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "boom")
+	})
+}
+
+func TestValidateCommandInvalidEnvironment(t *testing.T) {
+	resetCLIState(t)
+
+	_, err := executeCommand(t,
+		"--file", cliFixturePath("valid", "deploy.kdl"),
+		"validate",
+		"--env", "missing",
+	)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, `environment "missing" not found`)
+}
+
+func TestValidateCommandMissingFile(t *testing.T) {
+	resetCLIState(t)
+
+	_, err := executeCommand(t,
+		"--file", filepath.Join(t.TempDir(), "missing.kdl"),
+		"validate",
+	)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "read config file")
+}
+
+func TestValidateCommandInvalidFixture(t *testing.T) {
+	resetCLIState(t)
+
+	_, err := executeCommand(t,
+		"--file", cliFixturePath("invalid", "deploy.kdl"),
+		"validate",
+	)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, `defines "shared-name" in both cloud-run and grpc-server`)
 }
 
 func TestStatusCommandBuildUsesMockCloudBuildClient(t *testing.T) {
@@ -372,6 +785,75 @@ func TestStatusCommandBuildUsesMockCloudBuildClient(t *testing.T) {
 	mockClient.AssertExpectations(t)
 }
 
+func TestStatusCommandWriteErrors(t *testing.T) {
+	resetCLIState(t)
+
+	t.Run("build output", func(t *testing.T) {
+		viper.Set("file", cliFixturePath("valid", "deploy.kdl"))
+		mockClient := &mockCloudBuildClient{}
+		mockClient.On("GetBuildStatus", mock.Anything, "valid-gcp-project", "build-123").Return(&gcp.BuildResult{
+			ID:     "build-123",
+			Status: "SUCCESS",
+			LogURL: "https://logs/build-123",
+		}, nil).Once()
+		mockClient.On("Close").Return(nil).Once()
+		newCloudBuildClient = func(context.Context) (cloudBuildClient, error) { return mockClient, nil }
+
+		err := executeSpecificCommand(t, newStatusCmd(), "--build", "build-123")
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "boom")
+		mockClient.AssertExpectations(t)
+	})
+
+	t.Run("nats output", func(t *testing.T) {
+		mockClient := &mockNATSClient{}
+		mockClient.On("Subscribe", mock.Anything, "deploy.status.dev.>", 1, mock.Anything).Run(func(args mock.Arguments) {
+			handler := args.Get(3).(func(*nats.Msg) error)
+			err := handler(&nats.Msg{Subject: "deploy.status.dev.api", Data: []byte("ready")})
+			require.Error(t, err)
+		}).Return(nil).Once()
+		mockClient.On("Close").Return().Once()
+		newNATSClient = func(string) (natsClient, error) { return mockClient, nil }
+		viper.Set("nats-url", "nats://fixture:4222")
+
+		err := executeSpecificCommand(t, newStatusCmd(), "--env", "dev")
+		require.NoError(t, err)
+		mockClient.AssertExpectations(t)
+	})
+}
+
+func TestStatusCommandBuildErrors(t *testing.T) {
+	resetCLIState(t)
+
+	t.Run("new client", func(t *testing.T) {
+		newCloudBuildClient = func(context.Context) (cloudBuildClient, error) { return nil, errors.New("boom") }
+
+		_, err := executeCommand(t,
+			"--file", cliFixturePath("valid", "deploy.kdl"),
+			"status",
+			"--build", "build-123",
+		)
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "boom")
+	})
+
+	t.Run("get status", func(t *testing.T) {
+		mockClient := &mockCloudBuildClient{}
+		mockClient.On("GetBuildStatus", mock.Anything, "valid-gcp-project", "build-123").Return((*gcp.BuildResult)(nil), errors.New("boom")).Once()
+		mockClient.On("Close").Return(nil).Once()
+		newCloudBuildClient = func(context.Context) (cloudBuildClient, error) { return mockClient, nil }
+
+		_, err := executeCommand(t,
+			"--file", cliFixturePath("valid", "deploy.kdl"),
+			"status",
+			"--build", "build-123",
+		)
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "boom")
+		mockClient.AssertExpectations(t)
+	})
+}
+
 func TestStatusCommandEnvUsesMockNATSClient(t *testing.T) {
 	resetCLIState(t)
 
@@ -391,6 +873,70 @@ func TestStatusCommandEnvUsesMockNATSClient(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, output, "[deploy.status.dev.api-service] ready")
 	mockClient.AssertExpectations(t)
+}
+
+func TestStatusCommandFollowUsesContinuousSubscription(t *testing.T) {
+	resetCLIState(t)
+
+	mockClient := &mockNATSClient{}
+	mockClient.On("Subscribe", mock.Anything, "deploy.status.dev.>", 0, mock.Anything).Run(func(args mock.Arguments) {
+		handler := args.Get(3).(func(*nats.Msg) error)
+		_ = handler(&nats.Msg{
+			Subject: "deploy.status.dev.worker",
+			Data:    []byte("streaming"),
+		})
+	}).Return(nil).Once()
+	mockClient.On("Close").Return().Once()
+	newNATSClient = func(string) (natsClient, error) { return mockClient, nil }
+	viper.Set("nats-url", "nats://fixture:4222")
+
+	output, err := executeCommand(t, "status", "--env", "dev", "--follow")
+	require.NoError(t, err)
+	assert.Contains(t, output, "[deploy.status.dev.worker] streaming")
+	mockClient.AssertExpectations(t)
+}
+
+func TestStatusCommandEnvErrors(t *testing.T) {
+	resetCLIState(t)
+
+	t.Run("new client", func(t *testing.T) {
+		newNATSClient = func(string) (natsClient, error) { return nil, errors.New("boom") }
+
+		_, err := executeCommand(t, "status", "--env", "dev")
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "boom")
+	})
+
+	t.Run("subscribe", func(t *testing.T) {
+		mockClient := &mockNATSClient{}
+		mockClient.On("Subscribe", mock.Anything, "deploy.status.dev.>", 1, mock.Anything).Return(errors.New("boom")).Once()
+		mockClient.On("Close").Return().Once()
+		newNATSClient = func(string) (natsClient, error) { return mockClient, nil }
+		viper.Set("nats-url", "nats://fixture:4222")
+
+		_, err := executeCommand(t, "status", "--env", "dev")
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "boom")
+		mockClient.AssertExpectations(t)
+	})
+}
+
+func TestNATSCommandsReturnClientErrors(t *testing.T) {
+	resetCLIState(t)
+
+	t.Run("publish new client", func(t *testing.T) {
+		newNATSClient = func(string) (natsClient, error) { return nil, errors.New("boom") }
+		_, err := executeCommand(t, "nats", "publish", "--subject", "fixtures.publish", "hello")
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "boom")
+	})
+
+	t.Run("subscribe new client", func(t *testing.T) {
+		newNATSClient = func(string) (natsClient, error) { return nil, errors.New("boom") }
+		_, err := executeCommand(t, "nats", "subscribe", "--subject", "fixtures.subscribe", "--count", "1")
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "boom")
+	})
 }
 
 func TestDeployCommandAsyncUsesMockCloudBuildClient(t *testing.T) {
@@ -438,6 +984,34 @@ func TestNATSPublishCommandUsesMockClient(t *testing.T) {
 	mockClient.AssertExpectations(t)
 }
 
+func TestNATSPublishCommandWriteError(t *testing.T) {
+	resetCLIState(t)
+
+	mockClient := &mockNATSClient{}
+	mockClient.On("Publish", mock.Anything, "fixtures.publish", []byte("hello")).Return(nil).Once()
+	mockClient.On("Close").Return().Once()
+	newNATSClient = func(string) (natsClient, error) { return mockClient, nil }
+
+	err := executeSpecificCommand(t, newNATSPublishCmd(), "--subject", "fixtures.publish", "hello")
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "boom")
+	mockClient.AssertExpectations(t)
+}
+
+func TestNATSPublishCommandReturnsPublishError(t *testing.T) {
+	resetCLIState(t)
+
+	mockClient := &mockNATSClient{}
+	mockClient.On("Publish", mock.Anything, "fixtures.publish", []byte("hello")).Return(errors.New("boom")).Once()
+	mockClient.On("Close").Return().Once()
+	newNATSClient = func(string) (natsClient, error) { return mockClient, nil }
+
+	_, err := executeCommand(t, "nats", "publish", "--subject", "fixtures.publish", "hello")
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "boom")
+	mockClient.AssertExpectations(t)
+}
+
 func TestNATSSubscribeCommandUsesMockClient(t *testing.T) {
 	resetCLIState(t)
 
@@ -452,6 +1026,37 @@ func TestNATSSubscribeCommandUsesMockClient(t *testing.T) {
 	output, err := executeCommand(t, "nats", "subscribe", "--subject", "fixtures.subscribe", "--count", "1")
 	require.NoError(t, err)
 	assert.Contains(t, output, "[fixtures.subscribe] payload")
+	mockClient.AssertExpectations(t)
+}
+
+func TestNATSSubscribeCommandHandlerWriteError(t *testing.T) {
+	resetCLIState(t)
+
+	mockClient := &mockNATSClient{}
+	mockClient.On("Subscribe", mock.Anything, "fixtures.subscribe", 1, mock.Anything).Run(func(args mock.Arguments) {
+		handler := args.Get(3).(func(*nats.Msg) error)
+		err := handler(&nats.Msg{Subject: "fixtures.subscribe", Data: []byte("payload")})
+		require.Error(t, err)
+	}).Return(nil).Once()
+	mockClient.On("Close").Return().Once()
+	newNATSClient = func(string) (natsClient, error) { return mockClient, nil }
+
+	err := executeSpecificCommand(t, newNATSSubscribeCmd(), "--subject", "fixtures.subscribe", "--count", "1")
+	require.NoError(t, err)
+	mockClient.AssertExpectations(t)
+}
+
+func TestNATSSubscribeCommandReturnsSubscribeError(t *testing.T) {
+	resetCLIState(t)
+
+	mockClient := &mockNATSClient{}
+	mockClient.On("Subscribe", mock.Anything, "fixtures.subscribe", 1, mock.Anything).Return(errors.New("boom")).Once()
+	mockClient.On("Close").Return().Once()
+	newNATSClient = func(string) (natsClient, error) { return mockClient, nil }
+
+	_, err := executeCommand(t, "nats", "subscribe", "--subject", "fixtures.subscribe", "--count", "1")
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "boom")
 	mockClient.AssertExpectations(t)
 }
 
@@ -475,12 +1080,77 @@ func TestRollbackCommandUsesMockRunClient(t *testing.T) {
 	mockClient.AssertExpectations(t)
 }
 
+func TestRollbackCommandWriteError(t *testing.T) {
+	resetCLIState(t)
+	viper.Set("file", cliFixturePath("valid", "deploy.kdl"))
+
+	mockClient := &mockRunClient{}
+	mockClient.On("RollbackTraffic", mock.Anything, "valid-gcp-project", "us-east1", "api-service", "api-service-0002").Return(nil).Once()
+	mockClient.On("Close").Return(nil).Once()
+	newRunClient = func(context.Context) (runClient, error) { return mockClient, nil }
+
+	err := executeSpecificCommand(t, newRollbackCmd(), "--env", "dev", "--service", "api-service", "--revision", "api-service-0002")
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "boom")
+	mockClient.AssertExpectations(t)
+}
+
+func TestRollbackCommandReturnsClientError(t *testing.T) {
+	resetCLIState(t)
+
+	newRunClient = func(context.Context) (runClient, error) { return nil, errors.New("boom") }
+
+	_, err := executeCommand(t,
+		"--file", cliFixturePath("valid", "deploy.kdl"),
+		"rollback",
+		"--env", "dev",
+		"--service", "api-service",
+		"--revision", "api-service-0002",
+	)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "boom")
+}
+
+func TestRollbackCommandReturnsRollbackError(t *testing.T) {
+	resetCLIState(t)
+
+	mockClient := &mockRunClient{}
+	mockClient.On("RollbackTraffic", mock.Anything, "valid-gcp-project", "us-east1", "api-service", "api-service-0002").Return(errors.New("boom")).Once()
+	mockClient.On("Close").Return(nil).Once()
+	newRunClient = func(context.Context) (runClient, error) { return mockClient, nil }
+
+	_, err := executeCommand(t,
+		"--file", cliFixturePath("valid", "deploy.kdl"),
+		"rollback",
+		"--env", "dev",
+		"--service", "api-service",
+		"--revision", "api-service-0002",
+	)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "boom")
+	mockClient.AssertExpectations(t)
+}
+
 func TestRollbackCommandRequiresFlags(t *testing.T) {
 	resetCLIState(t)
 
 	_, err := executeCommand(t, "rollback")
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "--env, --service, and --revision are required")
+}
+
+func TestRollbackCommandInvalidEnvironment(t *testing.T) {
+	resetCLIState(t)
+
+	_, err := executeCommand(t,
+		"--file", cliFixturePath("valid", "deploy.kdl"),
+		"rollback",
+		"--env", "missing",
+		"--service", "api-service",
+		"--revision", "api-service-0002",
+	)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, `environment "missing" not found`)
 }
 
 func TestHelperFunctions(t *testing.T) {
@@ -505,6 +1175,22 @@ func TestHelperFunctions(t *testing.T) {
 		Operation: "operations/build-1",
 	}, true)
 	require.NoError(t, err)
+
+	err = writeDeployResult(&bytes.Buffer{}, "cloud-run", "api", &gcp.BuildResult{
+		Status: "SUCCESS",
+	}, false)
+	require.NoError(t, err)
+
+	err = writeDeployResult(errWriter{}, "cloud-run", "api", &gcp.BuildResult{
+		Status: "SUCCESS",
+	}, false)
+	require.Error(t, err)
+
+	err = writeDeployResult(&failAfterWriter{}, "cloud-run", "api", &gcp.BuildResult{
+		ID:     "build-1",
+		Status: "SUCCESS",
+	}, false)
+	require.Error(t, err)
 }
 
 func TestWriteFileCreatesNestedDirectories(t *testing.T) {

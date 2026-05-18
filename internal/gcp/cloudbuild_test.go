@@ -38,6 +38,67 @@ func (f *fakeCloudBuildAPI) GetBuild(ctx context.Context, req *cloudbuildpb.GetB
 	return f.getBuildFn(ctx, req, opts...)
 }
 
+func TestNewCloudBuildClient(t *testing.T) {
+	t.Parallel()
+
+	originalFactory := newCloudBuildAPI
+	t.Cleanup(func() {
+		newCloudBuildAPI = originalFactory
+	})
+
+	t.Run("success", func(t *testing.T) {
+		fakeClient := &fakeCloudBuildAPI{}
+		newCloudBuildAPI = func(context.Context) (cloudBuildAPI, error) {
+			return fakeClient, nil
+		}
+
+		client, err := NewCloudBuildClient(context.Background())
+		require.NoError(t, err)
+		require.NotNil(t, client)
+		assert.Same(t, fakeClient, client.client)
+	})
+
+	t.Run("error", func(t *testing.T) {
+		newCloudBuildAPI = func(context.Context) (cloudBuildAPI, error) {
+			return nil, errors.New("boom")
+		}
+
+		client, err := NewCloudBuildClient(context.Background())
+		require.Error(t, err)
+		assert.Nil(t, client)
+		assert.ErrorContains(t, err, "create cloud build client")
+	})
+}
+
+func TestNewCloudBuildClientSequential(t *testing.T) {
+	originalFactory := newCloudBuildAPI
+	t.Cleanup(func() {
+		newCloudBuildAPI = originalFactory
+	})
+
+	newCloudBuildAPI = func(context.Context) (cloudBuildAPI, error) {
+		return &fakeCloudBuildAPI{}, nil
+	}
+
+	client, err := NewCloudBuildClient(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, client)
+}
+
+func TestCloudBuildClientClose(t *testing.T) {
+	t.Parallel()
+
+	client := &CloudBuildClient{
+		client: &fakeCloudBuildAPI{
+			closeFn: func() error { return errors.New("boom") },
+		},
+	}
+
+	err := client.Close()
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "boom")
+}
+
 func TestBuildDeployArgsIncludesAdvancedCloudRunFlags(t *testing.T) {
 	t.Parallel()
 
@@ -191,6 +252,14 @@ func TestBuildIDFromOperationReadsMetadata(t *testing.T) {
 	op := &longrunningpb.Operation{Metadata: metadata}
 	assert.Equal(t, "build-123", buildIDFromOperation(op))
 	assert.Empty(t, buildIDFromOperation(&longrunningpb.Operation{}))
+
+	emptyMetadata, err := anypb.New(&cloudbuildpb.BuildOperationMetadata{})
+	require.NoError(t, err)
+	assert.Empty(t, buildIDFromOperation(&longrunningpb.Operation{Metadata: emptyMetadata}))
+
+	assert.Empty(t, buildIDFromOperation(&longrunningpb.Operation{
+		Metadata: &anypb.Any{TypeUrl: "type.googleapis.com/example.invalid"},
+	}))
 }
 
 func TestFormattingHelpersSortValues(t *testing.T) {
@@ -324,6 +393,86 @@ func TestCloudBuildClientSubmitManagedResourceBuildNoWait(t *testing.T) {
 	assert.Equal(t, "build-456", result.ID)
 }
 
+func TestCloudBuildClientSubmitCloudRunBuildNoWait(t *testing.T) {
+	t.Parallel()
+
+	metadata, err := anypb.New(&cloudbuildpb.BuildOperationMetadata{
+		Build: &cloudbuildpb.Build{Id: "build-789"},
+	})
+	require.NoError(t, err)
+
+	client := &CloudBuildClient{
+		client: &fakeCloudBuildAPI{
+			createBuildFn: func(_ context.Context, req *cloudbuildpb.CreateBuildRequest, _ ...gax.CallOption) (*longrunningpb.Operation, error) {
+				require.Equal(t, "project", req.ProjectId)
+				return &longrunningpb.Operation{Name: "operations/build-789", Metadata: metadata}, nil
+			},
+			getBuildFn: func(context.Context, *cloudbuildpb.GetBuildRequest, ...gax.CallOption) (*cloudbuildpb.Build, error) {
+				t.Fatal("unexpected poll")
+				return nil, nil
+			},
+		},
+	}
+
+	result, err := client.SubmitCloudRunBuild(context.Background(), BuildRequest{
+		ProjectID:   "project",
+		Region:      "us-central1",
+		Environment: "prod",
+		Service: &types.DeploymentService{
+			Kind:         types.ServiceKindCloudRun,
+			Name:         "api",
+			Image:        "image:latest",
+			CPU:          1,
+			Memory:       "512Mi",
+			MaxInstances: 1,
+			Concurrency:  1,
+			Port:         8080,
+		},
+	}, false)
+	require.NoError(t, err)
+	assert.Equal(t, "QUEUED", result.Status)
+	assert.Equal(t, "build-789", result.ID)
+}
+
+func TestCloudBuildClientSubmitManagedResourceBuildWait(t *testing.T) {
+	t.Parallel()
+
+	metadata, err := anypb.New(&cloudbuildpb.BuildOperationMetadata{
+		Build: &cloudbuildpb.Build{Id: "build-999"},
+	})
+	require.NoError(t, err)
+
+	client := &CloudBuildClient{
+		client: &fakeCloudBuildAPI{
+			createBuildFn: func(_ context.Context, req *cloudbuildpb.CreateBuildRequest, _ ...gax.CallOption) (*longrunningpb.Operation, error) {
+				require.Equal(t, "project", req.ProjectId)
+				return &longrunningpb.Operation{Name: "operations/build-999", Metadata: metadata}, nil
+			},
+			getBuildFn: func(_ context.Context, req *cloudbuildpb.GetBuildRequest, _ ...gax.CallOption) (*cloudbuildpb.Build, error) {
+				require.Equal(t, "build-999", req.Id)
+				return &cloudbuildpb.Build{Id: "build-999", Status: cloudbuildpb.Build_SUCCESS, LogUrl: "https://logs/999"}, nil
+			},
+		},
+	}
+
+	result, err := client.SubmitManagedResourceBuild(context.Background(), ResourceBuildRequest{
+		ProjectID:   "project",
+		Region:      "us-central1",
+		Environment: "prod",
+		Resource: &types.DeploymentResource{
+			Kind:         types.ResourceKindRedis,
+			Name:         "cache",
+			Tier:         "STANDARD_HA",
+			MemorySizeGB: 2,
+			RedisVersion: "REDIS_7_0",
+		},
+	}, true)
+	require.NoError(t, err)
+	assert.Equal(t, "build-999", result.ID)
+	assert.Equal(t, "SUCCESS", result.Status)
+	assert.Equal(t, "https://logs/999", result.LogURL)
+}
+
 func TestCloudBuildClientErrorPaths(t *testing.T) {
 	t.Parallel()
 
@@ -390,6 +539,36 @@ func TestCloudBuildClientErrorPaths(t *testing.T) {
 		require.Error(t, err)
 		assert.ErrorContains(t, err, "get build status")
 	})
+}
+
+func TestCloudBuildClientGetBuildStatusSuccess(t *testing.T) {
+	t.Parallel()
+
+	client := &CloudBuildClient{
+		client: &fakeCloudBuildAPI{
+			createBuildFn: func(context.Context, *cloudbuildpb.CreateBuildRequest, ...gax.CallOption) (*longrunningpb.Operation, error) {
+				t.Fatal("unexpected create")
+				return nil, nil
+			},
+			getBuildFn: func(_ context.Context, req *cloudbuildpb.GetBuildRequest, _ ...gax.CallOption) (*cloudbuildpb.Build, error) {
+				assert.Equal(t, "project", req.ProjectId)
+				assert.Equal(t, "build-123", req.Id)
+				return &cloudbuildpb.Build{
+					Id:     "build-123",
+					Status: cloudbuildpb.Build_WORKING,
+					LogUrl: "https://logs/build-123",
+				}, nil
+			},
+		},
+	}
+
+	result, err := client.GetBuildStatus(context.Background(), "project", "build-123")
+	require.NoError(t, err)
+	assert.Equal(t, &BuildResult{
+		ID:     "build-123",
+		Status: "WORKING",
+		LogURL: "https://logs/build-123",
+	}, result)
 }
 
 func TestCloudBuildClientWaitForBuildErrors(t *testing.T) {

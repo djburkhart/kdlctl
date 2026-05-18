@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -15,10 +16,16 @@ const (
 	defaultNATSURL    = "nats://127.0.0.1:4222"
 )
 
+var (
+	exitFunc                     = os.Exit
+	stderrWriter       io.Writer = os.Stderr
+	rootCommandFactory           = newRootCmd
+)
+
 func Execute() {
-	if err := newRootCmd().Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+	if err := rootCommandFactory().Execute(); err != nil {
+		fmt.Fprintln(stderrWriter, err)
+		exitFunc(1)
 	}
 }
 

@@ -328,6 +328,130 @@ environment "prod" extends="base" {
 	assert.True(t, env.NATS.Cluster.JetStream)
 }
 
+func TestParseEnvironmentWithExplicitValues(t *testing.T) {
+	t.Parallel()
+
+	doc, err := kdl.Parse(strings.NewReader(`
+environment "prod" extends="base" {
+  cloud-run "api" {
+    image "image:latest"
+    cpu 2
+    memory "1Gi"
+    min-instances 1
+    max-instances 5
+    concurrency 50
+    port 8080
+    ingress "internal"
+    http2 #true
+    allow-unauthenticated #true
+    vpc-connector "run-vpc"
+    vpc-egress "private-ranges-only"
+    cloud-sql-instances {
+      item "sql-a"
+      item "sql-b"
+    }
+    labels {
+      env "prod"
+    }
+    env {
+      LOG_LEVEL "info"
+      TOKEN secret="api-token"
+    }
+    traffic {
+      latest 25
+    }
+  }
+  grpc-server "grpc" {
+    image "grpc:latest"
+    cpu 1
+    memory "512Mi"
+    port 8443
+  }
+  caddy-server "edge" {
+    image "caddy:latest"
+    cpu 1
+    memory "512Mi"
+    port 8081
+  }
+  cloud-sql "db" {
+    database-version "POSTGRES_16"
+    tier "db-custom-2-7680"
+    availability-type "REGIONAL"
+    storage-gb 100
+  }
+  redis "cache" {
+    tier "STANDARD_HA"
+    memory-gb 2
+    redis-version "REDIS_7_0"
+  }
+  pubsub-topic "events" {
+    retention "120s"
+    labels {
+      app "api"
+    }
+  }
+  logging-bucket "logs" {
+    location "global"
+    retention-days 30
+    description "bucket"
+  }
+  logging-sink "sink" {
+    destination "logging.googleapis.com/projects/p/locations/global/buckets/logs"
+    filter "severity>=ERROR"
+    description "sink"
+    unique-writer-identity #true
+  }
+  nats {
+    cluster "nats-prod" {
+      replicas 3
+      jetstream enabled=#true
+      storage-class "fast"
+      size "20Gi"
+    }
+  }
+}`))
+	require.NoError(t, err)
+
+	env, err := parseEnvironment(doc.GetNode("environment"))
+	require.NoError(t, err)
+
+	api := env.CloudRunServices["api"]
+	require.NotNil(t, api)
+	assert.Equal(t, 2, api.CPU)
+	assert.Equal(t, "1Gi", api.Memory)
+	assert.Equal(t, 1, api.MinInstances)
+	assert.Equal(t, 5, api.MaxInstances)
+	assert.Equal(t, 50, api.Concurrency)
+	assert.Equal(t, 8080, api.Port)
+	assert.Equal(t, "internal", api.Ingress)
+	assert.True(t, api.UseHTTP2)
+	assert.True(t, api.AllowUnauthenticated)
+	assert.Equal(t, "run-vpc", api.VPCConnector)
+	assert.Equal(t, "private-ranges-only", api.VPCEgress)
+	assert.Equal(t, []string{"sql-a", "sql-b"}, api.CloudSQLInstances)
+	assert.Equal(t, "prod", api.Labels["env"])
+	assert.Equal(t, "info", api.Env["LOG_LEVEL"].Value)
+	assert.Equal(t, "api-token", api.Env["TOKEN"].Secret)
+	assert.Equal(t, 25, api.Traffic.LatestPercent)
+
+	require.NotNil(t, env.GRPCServers["grpc"])
+	require.NotNil(t, env.CaddyServers["edge"])
+	assert.Equal(t, "POSTGRES_16", env.CloudSQL["db"].DatabaseVersion)
+	assert.Equal(t, "STANDARD_HA", env.Redis["cache"].Tier)
+	assert.Equal(t, "120s", env.PubSubTopics["events"].MessageRetentionDuration)
+	assert.Equal(t, "api", env.PubSubTopics["events"].Labels["app"])
+	assert.Equal(t, "global", env.LoggingBuckets["logs"].Location)
+	assert.Equal(t, "bucket", env.LoggingBuckets["logs"].Description)
+	assert.Equal(t, "severity>=ERROR", env.LoggingSinks["sink"].Filter)
+	assert.True(t, env.LoggingSinks["sink"].UniqueWriterIdentity)
+	require.NotNil(t, env.NATS)
+	require.NotNil(t, env.NATS.Cluster)
+	assert.Equal(t, 3, env.NATS.Cluster.Replicas)
+	assert.True(t, env.NATS.Cluster.JetStream)
+	assert.Equal(t, "fast", env.NATS.Cluster.StorageClass)
+	assert.Equal(t, "20Gi", env.NATS.Cluster.Size)
+}
+
 func TestParseErrors(t *testing.T) {
 	t.Parallel()
 
@@ -370,6 +494,361 @@ project "bad" region="us-central1" {
 		_, err := propertyBool(node, "enabled")
 		require.Error(t, err)
 	})
+
+	t.Run("environment parse branches", func(t *testing.T) {
+		t.Parallel()
+
+		tests := []struct {
+			name     string
+			snippet  string
+			contains string
+		}{
+			{
+				name: "environment name",
+				snippet: `
+environment {
+}`,
+				contains: "parse environment name",
+			},
+			{
+				name: "grpc server",
+				snippet: `
+environment "prod" {
+  grpc-server "grpc" {
+    http2 "oops"
+  }
+}`,
+				contains: `parse grpc-server in environment "prod"`,
+			},
+			{
+				name: "caddy server",
+				snippet: `
+environment "prod" {
+  caddy-server "edge" {
+    allow-unauthenticated "oops"
+  }
+}`,
+				contains: `parse caddy-server in environment "prod"`,
+			},
+			{
+				name: "cloud sql",
+				snippet: `
+environment "prod" {
+  cloud-sql "db" {
+    storage-gb "oops"
+  }
+}`,
+				contains: `parse cloud-sql in environment "prod"`,
+			},
+			{
+				name: "redis",
+				snippet: `
+environment "prod" {
+  redis "cache" {
+    memory-gb "oops"
+  }
+}`,
+				contains: `parse redis in environment "prod"`,
+			},
+			{
+				name: "pubsub",
+				snippet: `
+environment "prod" {
+  pubsub-topic "events" {
+    labels {
+      BAD
+    }
+  }
+}`,
+				contains: `parse pubsub-topic in environment "prod"`,
+			},
+			{
+				name: "logging bucket",
+				snippet: `
+environment "prod" {
+  logging-bucket "logs" {
+    retention-days "oops"
+  }
+}`,
+				contains: `parse logging-bucket in environment "prod"`,
+			},
+			{
+				name: "logging sink",
+				snippet: `
+environment "prod" {
+  logging-sink "sink" {
+    unique-writer-identity "oops"
+  }
+}`,
+				contains: `parse logging-sink in environment "prod"`,
+			},
+			{
+				name: "nats",
+				snippet: `
+environment "prod" {
+  nats {
+    cluster "nats" {
+      jetstream enabled="oops"
+    }
+  }
+}`,
+				contains: `parse nats config in environment "prod"`,
+			},
+		}
+
+		for _, tt := range tests {
+			tt := tt
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+				doc, err := kdl.Parse(strings.NewReader(tt.snippet))
+				require.NoError(t, err)
+
+				_, err = parseEnvironment(doc.GetNode("environment"))
+				require.Error(t, err)
+				assert.ErrorContains(t, err, tt.contains)
+			})
+		}
+	})
+}
+
+func TestMergeHelpersHandleEmptyMapsAndNilClusters(t *testing.T) {
+	t.Parallel()
+
+	grpcMerged := mergeGRPCServer(&types.GRPCServer{
+		Name:  "grpc",
+		Image: "base",
+	}, &types.GRPCServer{
+		Labels: map[string]string{"tier": "api"},
+		Env:    map[string]types.EnvVar{"TOKEN": {Secret: "token"}},
+	})
+	assert.Equal(t, "api", grpcMerged.Labels["tier"])
+	assert.Equal(t, "token", grpcMerged.Env["TOKEN"].Secret)
+
+	caddyMerged := mergeCaddyServer(&types.CaddyServer{
+		Name:  "caddy",
+		Image: "base",
+	}, &types.CaddyServer{
+		Labels: map[string]string{"tier": "edge"},
+		Env:    map[string]types.EnvVar{"CONFIG": {Value: "/etc/caddy/Caddyfile"}},
+	})
+	assert.Equal(t, "edge", caddyMerged.Labels["tier"])
+	assert.Equal(t, "/etc/caddy/Caddyfile", caddyMerged.Env["CONFIG"].Value)
+
+	natsMerged := mergeNATS(&types.NATSConfig{}, &types.NATSConfig{
+		Cluster: &types.NATSClusterConfig{Name: "nats", Replicas: 3},
+	})
+	require.NotNil(t, natsMerged.Cluster)
+	assert.Equal(t, "nats", natsMerged.Cluster.Name)
+
+	natsBase := &types.NATSConfig{Cluster: &types.NATSClusterConfig{Name: "base"}}
+	assert.Equal(t, "base", mergeNATS(natsBase, &types.NATSConfig{}).Cluster.Name)
+}
+
+func TestMergeHelpersOverrideAllFields(t *testing.T) {
+	t.Parallel()
+
+	grpc := mergeGRPCServer(&types.GRPCServer{
+		Name:         "base",
+		Image:        "base-image",
+		CPU:          1,
+		Memory:       "512Mi",
+		MinInstances: 1,
+		MaxInstances: 2,
+		Concurrency:  10,
+		Port:         8080,
+		Ingress:      "internal",
+		Labels:       map[string]string{},
+		Env:          map[string]types.EnvVar{},
+	}, &types.GRPCServer{
+		Name:                 "override",
+		Image:                "override-image",
+		CPU:                  2,
+		Memory:               "1Gi",
+		MinInstances:         3,
+		MaxInstances:         4,
+		Concurrency:          20,
+		Port:                 8443,
+		Ingress:              "all",
+		UseHTTP2:             true,
+		AllowUnauthenticated: true,
+		VPCConnector:         "grpc-vpc",
+		VPCEgress:            "private-ranges-only",
+		CloudSQLInstances:    []string{"grpc-sql"},
+		Labels:               map[string]string{"tier": "api"},
+		Env:                  map[string]types.EnvVar{"TOKEN": {Secret: "grpc-token"}},
+		Traffic:              types.TrafficConfig{LatestPercent: 100},
+	})
+	assert.Equal(t, "override", grpc.Name)
+	assert.Equal(t, "override-image", grpc.Image)
+	assert.Equal(t, 2, grpc.CPU)
+	assert.Equal(t, "1Gi", grpc.Memory)
+	assert.Equal(t, 3, grpc.MinInstances)
+	assert.Equal(t, 4, grpc.MaxInstances)
+	assert.Equal(t, 20, grpc.Concurrency)
+	assert.Equal(t, 8443, grpc.Port)
+	assert.Equal(t, "all", grpc.Ingress)
+	assert.True(t, grpc.UseHTTP2)
+	assert.True(t, grpc.AllowUnauthenticated)
+	assert.Equal(t, "grpc-vpc", grpc.VPCConnector)
+	assert.Equal(t, "private-ranges-only", grpc.VPCEgress)
+	assert.Equal(t, []string{"grpc-sql"}, grpc.CloudSQLInstances)
+	assert.Equal(t, "api", grpc.Labels["tier"])
+	assert.Equal(t, "grpc-token", grpc.Env["TOKEN"].Secret)
+	assert.Equal(t, 100, grpc.Traffic.LatestPercent)
+
+	caddy := mergeCaddyServer(&types.CaddyServer{
+		Name:         "base",
+		Image:        "base-image",
+		CPU:          1,
+		Memory:       "512Mi",
+		MinInstances: 1,
+		MaxInstances: 2,
+		Concurrency:  10,
+		Port:         8080,
+		Ingress:      "internal",
+		Labels:       map[string]string{},
+		Env:          map[string]types.EnvVar{},
+	}, &types.CaddyServer{
+		Name:                 "override",
+		Image:                "override-image",
+		CPU:                  2,
+		Memory:               "1Gi",
+		MinInstances:         3,
+		MaxInstances:         4,
+		Concurrency:          20,
+		Port:                 8443,
+		Ingress:              "all",
+		UseHTTP2:             true,
+		AllowUnauthenticated: true,
+		VPCConnector:         "caddy-vpc",
+		VPCEgress:            "all-traffic",
+		CloudSQLInstances:    []string{"caddy-sql"},
+		Labels:               map[string]string{"tier": "edge"},
+		Env:                  map[string]types.EnvVar{"CONFIG": {Value: "Caddyfile"}},
+		Traffic:              types.TrafficConfig{LatestPercent: 100},
+	})
+	assert.Equal(t, "override", caddy.Name)
+	assert.Equal(t, "override-image", caddy.Image)
+	assert.Equal(t, 2, caddy.CPU)
+	assert.Equal(t, "1Gi", caddy.Memory)
+	assert.Equal(t, 3, caddy.MinInstances)
+	assert.Equal(t, 4, caddy.MaxInstances)
+	assert.Equal(t, 20, caddy.Concurrency)
+	assert.Equal(t, 8443, caddy.Port)
+	assert.Equal(t, "all", caddy.Ingress)
+	assert.True(t, caddy.UseHTTP2)
+	assert.True(t, caddy.AllowUnauthenticated)
+	assert.Equal(t, "caddy-vpc", caddy.VPCConnector)
+	assert.Equal(t, "all-traffic", caddy.VPCEgress)
+	assert.Equal(t, []string{"caddy-sql"}, caddy.CloudSQLInstances)
+	assert.Equal(t, "edge", caddy.Labels["tier"])
+	assert.Equal(t, "Caddyfile", caddy.Env["CONFIG"].Value)
+	assert.Equal(t, 100, caddy.Traffic.LatestPercent)
+
+	sql := mergeCloudSQL(&types.CloudSQLInstance{Name: "base", DatabaseVersion: "POSTGRES_15", Tier: "db-custom-1-3840", AvailabilityType: "ZONAL", StorageSizeGB: 50}, &types.CloudSQLInstance{
+		Name:             "override",
+		DatabaseVersion:  "POSTGRES_16",
+		Tier:             "db-custom-2-7680",
+		AvailabilityType: "REGIONAL",
+		StorageSizeGB:    100,
+	})
+	assert.Equal(t, "override", sql.Name)
+	assert.Equal(t, "POSTGRES_16", sql.DatabaseVersion)
+	assert.Equal(t, "db-custom-2-7680", sql.Tier)
+	assert.Equal(t, "REGIONAL", sql.AvailabilityType)
+	assert.Equal(t, 100, sql.StorageSizeGB)
+
+	redis := mergeRedis(&types.RedisInstance{Name: "base", Tier: "BASIC", MemorySizeGB: 1, RedisVersion: "REDIS_6_X"}, &types.RedisInstance{
+		Name:         "override",
+		Tier:         "STANDARD_HA",
+		MemorySizeGB: 2,
+		RedisVersion: "REDIS_7_0",
+	})
+	assert.Equal(t, "override", redis.Name)
+	assert.Equal(t, "STANDARD_HA", redis.Tier)
+	assert.Equal(t, 2, redis.MemorySizeGB)
+	assert.Equal(t, "REDIS_7_0", redis.RedisVersion)
+
+	topic := mergePubSubTopic(&types.PubSubTopic{Name: "base", MessageRetentionDuration: "60s", Labels: map[string]string{}}, &types.PubSubTopic{
+		Name:                     "override",
+		MessageRetentionDuration: "120s",
+		Labels:                   map[string]string{"env": "prod"},
+	})
+	assert.Equal(t, "override", topic.Name)
+	assert.Equal(t, "120s", topic.MessageRetentionDuration)
+	assert.Equal(t, "prod", topic.Labels["env"])
+
+	bucket := mergeLoggingBucket(&types.LoggingBucket{Name: "base", Location: "us", RetentionDays: 7, Description: "base"}, &types.LoggingBucket{
+		Name:          "override",
+		Location:      "global",
+		RetentionDays: 30,
+		Description:   "override",
+	})
+	assert.Equal(t, "override", bucket.Name)
+	assert.Equal(t, "global", bucket.Location)
+	assert.Equal(t, 30, bucket.RetentionDays)
+	assert.Equal(t, "override", bucket.Description)
+
+	sink := mergeLoggingSink(&types.LoggingSink{Name: "base", Destination: "dest-a", Filter: "severity>=ERROR", Description: "base"}, &types.LoggingSink{
+		Name:                 "override",
+		Destination:          "dest-b",
+		Filter:               "severity>=WARNING",
+		Description:          "override",
+		UniqueWriterIdentity: true,
+	})
+	assert.Equal(t, "override", sink.Name)
+	assert.Equal(t, "dest-b", sink.Destination)
+	assert.Equal(t, "severity>=WARNING", sink.Filter)
+	assert.Equal(t, "override", sink.Description)
+	assert.True(t, sink.UniqueWriterIdentity)
+}
+
+func TestHelperParsersAdditionalBranches(t *testing.T) {
+	t.Parallel()
+
+	node := mustNode(t, `node bad=#null`)
+	assert.Empty(t, propertyString(node, "missing"))
+	assert.Empty(t, propertyString(node, "bad"))
+
+	value, err := valueString(node.Properties()["bad"])
+	require.Error(t, err)
+	assert.Empty(t, value)
+
+	listDoc, err := kdl.Parse(strings.NewReader(`
+node {
+  items {
+    entry
+  }
+}`))
+	require.NoError(t, err)
+	_, err = parseStringListBlock(listDoc.GetNode("node").Children().GetNode("items"))
+	require.Error(t, err)
+	assert.ErrorContains(t, err, `read "entry" list entry`)
+
+	natsDoc, err := kdl.Parse(strings.NewReader(`
+node {
+}`))
+	require.NoError(t, err)
+	natsCfg, err := parseNATS(natsDoc.GetNode("node"))
+	require.NoError(t, err)
+	assert.NotNil(t, natsCfg)
+	assert.Nil(t, natsCfg.Cluster)
+
+	clusterDoc, err := kdl.Parse(strings.NewReader(`
+node {
+  cluster "nats" {
+    storage-class "fast"
+    size "20Gi"
+  }
+}`))
+	require.NoError(t, err)
+	natsCfg, err = parseNATS(clusterDoc.GetNode("node"))
+	require.NoError(t, err)
+	require.NotNil(t, natsCfg.Cluster)
+	assert.Equal(t, "nats", natsCfg.Cluster.Name)
+	assert.Equal(t, 1, natsCfg.Cluster.Replicas)
+	assert.Equal(t, "fast", natsCfg.Cluster.StorageClass)
+	assert.Equal(t, "20Gi", natsCfg.Cluster.Size)
 }
 
 func mustNode(t *testing.T, snippet string) *kdl.Node {
