@@ -28,13 +28,21 @@ type runUpdateOperation interface {
 	Wait(ctx context.Context, opts ...gax.CallOption) (*runpb.Service, error)
 }
 
-func NewRunClient(ctx context.Context) (*RunClient, error) {
+var newRunServiceClient = func(ctx context.Context) (runServiceAPI, error) {
 	client, err := run.NewServicesClient(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &runServiceClientWrapper{client: client}, nil
+}
+
+func NewRunClient(ctx context.Context) (*RunClient, error) {
+	client, err := newRunServiceClient(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("create cloud run client: %w", err)
 	}
 
-	return &RunClient{client: &runServiceClientWrapper{client: client}}, nil
+	return &RunClient{client: client}, nil
 }
 
 func (w *runServiceClientWrapper) Close() error {

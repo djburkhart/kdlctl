@@ -5,7 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [v0.2.3] - 2026-05-18
+
+### Changed
+
+- Expanded unit coverage again across the CLI, config loader, and GCP client packages, raising local package coverage to `internal/cli 96.3%`, `internal/config 97.5%`, and `internal/gcp 93.4%`, with `cmd/kdlctl`, `internal/github`, and `pkg/types` now covered at `100%`.
+- Added small constructor and command-entry seams so CLI root execution and GCP client setup paths can be exercised directly in tests without changing runtime behavior.
+
+### Testing
+
+- Added targeted tests for CLI init, plan, status, rollback, NATS, and root command write/error branches, plus config validation, environment resolution, explicit parser-value coverage, and GCP client constructor and close/error paths.
 
 ## [v0.2.2] - 2026-05-17
 

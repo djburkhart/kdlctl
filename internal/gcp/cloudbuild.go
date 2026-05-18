@@ -48,8 +48,12 @@ type cloudBuildAPI interface {
 	GetBuild(ctx context.Context, req *cloudbuildpb.GetBuildRequest, opts ...gax.CallOption) (*cloudbuildpb.Build, error)
 }
 
+var newCloudBuildAPI = func(ctx context.Context) (cloudBuildAPI, error) {
+	return cloudbuild.NewClient(ctx)
+}
+
 func NewCloudBuildClient(ctx context.Context) (*CloudBuildClient, error) {
-	client, err := cloudbuild.NewClient(ctx)
+	client, err := newCloudBuildAPI(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("create cloud build client: %w", err)
 	}
