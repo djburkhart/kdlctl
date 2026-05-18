@@ -100,7 +100,7 @@ func ValidateProject(cfg *types.ProjectConfig) error {
 	}
 
 	for name := range cfg.Environments {
-		if _, err := ResolveEnvironment(cfg, name); err != nil {
+		if err := ValidateEnvironment(cfg, name); err != nil {
 			return err
 		}
 	}

@@ -1,0 +1,126 @@
+project "fixture-gcp-project" region="us-central1" {
+    environment "production" {
+        cloud-run "api-gateway" {
+            image "us-central1-docker.pkg.dev/fixture-gcp-project/apps/api-gateway:latest"
+            cpu 2
+            memory "1Gi"
+            min-instances 2
+            max-instances 50
+            concurrency 80
+            port 8080
+            ingress "all"
+            http2 #true
+            allow-unauthenticated #true
+            vpc-connector "serverless-connector"
+            vpc-egress "private-ranges-only"
+            cloud-sql-instances {
+                instance "fixture-gcp-project:us-central1:primary-db"
+            }
+            labels {
+                env "prod"
+                tier "edge"
+            }
+            env {
+                LOG_LEVEL "info"
+                API_DB_DSN secret="api-db-dsn"
+            }
+            traffic {
+                latest 100
+            }
+        }
+
+        grpc-server "payments-grpc" {
+            image "us-central1-docker.pkg.dev/fixture-gcp-project/apps/payments-grpc:latest"
+            cpu 2
+            memory "1Gi"
+            min-instances 1
+            max-instances 25
+            concurrency 60
+            port 9090
+            ingress "internal"
+            http2 #true
+            vpc-connector "serverless-connector"
+            vpc-egress "private-ranges-only"
+            cloud-sql-instances {
+                instance "fixture-gcp-project:us-central1:primary-db"
+            }
+            labels {
+                env "prod"
+                tier "grpc"
+            }
+            env {
+                PAYMENTS_DSN secret="payments-dsn"
+            }
+        }
+
+        caddy-server "edge-caddy" {
+            image "us-central1-docker.pkg.dev/fixture-gcp-project/apps/caddy:latest"
+            port 8081
+            ingress "all"
+            allow-unauthenticated #true
+            labels {
+                tier "proxy"
+            }
+            env {
+                CADDY_CONFIG "/etc/caddy/Caddyfile"
+            }
+        }
+
+        cloud-sql "primary-db" {
+            database-version "POSTGRES_16"
+            tier "db-custom-2-7680"
+            availability-type "REGIONAL"
+            storage-gb 100
+        }
+
+        redis "sessions-cache" {
+            tier "STANDARD_HA"
+            memory-gb 2
+            redis-version "REDIS_7_0"
+        }
+
+        pubsub-topic "domain-events" {
+            retention "604800s"
+            labels {
+                app "fixture"
+                env "prod"
+            }
+        }
+
+        logging-bucket "application-logs" {
+            location "global"
+            retention-days 30
+            description "Fixture log bucket"
+        }
+
+        logging-sink "error-export" {
+            destination "logging.googleapis.com/projects/fixture-gcp-project/locations/global/buckets/application-logs"
+            filter "severity>=ERROR"
+            description "Export errors"
+            unique-writer-identity #true
+        }
+
+        nats {
+            cluster "nats-prod" {
+                replicas 3
+                jetstream enabled=#true
+                storage-class "standard"
+                size "20Gi"
+            }
+        }
+    }
+
+    environment "staging" extends="production" {
+        cloud-run "api-gateway" {
+            image "us-central1-docker.pkg.dev/fixture-gcp-project/apps/api-gateway:staging"
+            max-instances 5
+            labels {
+                env "staging"
+            }
+        }
+
+        logging-sink "error-export" {
+            filter "severity>=WARNING"
+        }
+    }
+}

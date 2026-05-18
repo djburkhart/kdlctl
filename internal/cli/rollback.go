@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/djburkhart/kdlctl/internal/config"
-	"github.com/djburkhart/kdlctl/internal/gcp"
 )
 
 func newRollbackCmd() *cobra.Command {
@@ -36,7 +35,7 @@ func newRollbackCmd() *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), 15*time.Minute)
 			defer cancel()
 
-			client, err := gcp.NewRunClient(ctx)
+			client, err := newRunClient(ctx)
 			if err != nil {
 				return err
 			}

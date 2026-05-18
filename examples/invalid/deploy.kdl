@@ -1,0 +1,11 @@
+project "invalid-gcp-project" region="us-central1" {
+    environment "prod" {
+        cloud-run "shared-name" {
+            image "us-central1-docker.pkg.dev/invalid-gcp-project/apps/api:latest"
+        }
+
+        grpc-server "shared-name" {
+            image "us-central1-docker.pkg.dev/invalid-gcp-project/apps/grpc:latest"
+        }
+    }
+}

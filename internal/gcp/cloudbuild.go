@@ -10,6 +10,7 @@ import (
 
 	cloudbuild "cloud.google.com/go/cloudbuild/apiv1"
 	cloudbuildpb "cloud.google.com/go/cloudbuild/apiv1/v2/cloudbuildpb"
+	"github.com/googleapis/gax-go/v2"
 	longrunningpb "google.golang.org/genproto/googleapis/longrunning"
 	"google.golang.org/protobuf/types/known/durationpb"
 
@@ -38,7 +39,13 @@ type BuildResult struct {
 }
 
 type CloudBuildClient struct {
-	client *cloudbuild.Client
+	client cloudBuildAPI
+}
+
+type cloudBuildAPI interface {
+	Close() error
+	CreateBuild(ctx context.Context, req *cloudbuildpb.CreateBuildRequest, opts ...gax.CallOption) (*longrunningpb.Operation, error)
+	GetBuild(ctx context.Context, req *cloudbuildpb.GetBuildRequest, opts ...gax.CallOption) (*cloudbuildpb.Build, error)
 }
 
 func NewCloudBuildClient(ctx context.Context) (*CloudBuildClient, error) {

@@ -1,0 +1,10 @@
+project "valid-gcp-project" region="us-east1" {
+    environment "dev" {
+        cloud-run "api-service" {
+            image "us-east1-docker.pkg.dev/valid-gcp-project/apps/api-service:latest"
+            env {
+                LOG_LEVEL "debug"
+            }
+        }
+    }
+}

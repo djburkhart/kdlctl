@@ -6,8 +6,6 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-
-	kdlnats "github.com/djburkhart/kdlctl/internal/nats"
 )
 
 func newNATSCmd() *cobra.Command {
@@ -28,7 +26,7 @@ func newNATSPublishCmd() *cobra.Command {
 		Short: "Publish a message to NATS",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client, err := kdlnats.NewClient(viper.GetString("nats-url"))
+			client, err := newNATSClient(viper.GetString("nats-url"))
 			if err != nil {
 				return err
 			}
@@ -56,7 +54,7 @@ func newNATSSubscribeCmd() *cobra.Command {
 		Use:   "subscribe --subject <subject>",
 		Short: "Subscribe to a NATS subject",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client, err := kdlnats.NewClient(viper.GetString("nats-url"))
+			client, err := newNATSClient(viper.GetString("nats-url"))
 			if err != nil {
 				return err
 			}

@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [v0.2.1] - 2026-05-17
+
+### Added
+
+- Added `testify`-based unit tests across the CLI, planner, Cloud Build helpers, templates, and type cloning helpers.
+- Added reusable example fixtures under `examples/valid`, `examples/invalid`, and `examples/complex`.
+- Added a `Makefile` with `test` and `test-race` targets.
+- Added a dedicated GitHub Actions test workflow with parallel test execution and a 70% coverage gate across `internal/...` and `pkg/...`.
+- Added Coveralls reporting and pull request coverage feedback to the GitHub Actions test pipeline.
+
+### Changed
+
+- Refactored CLI integrations so NATS, Cloud Build, and Cloud Run rollback paths are mockable in tests without live credentials.
+- Expanded internal test coverage across `internal/cli`, `internal/config`, `internal/deploy`, `internal/gcp`, `internal/github`, `internal/nats`, and `pkg/types`.
+
+### Documentation
+
+- Updated the README to reflect the current example fixture layout, testing workflow, coverage reporting, and release process for the `v0.2.x` line.
+
 ## [v0.1.1] - 2026-05-17
 
 ### Added

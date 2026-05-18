@@ -4,13 +4,15 @@
 [![License: Apache-2.0](https://img.shields.io/github/license/djburkhart/kdlctl)](https://github.com/djburkhart/kdlctl/blob/main/LICENSE)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/djburkhart/kdlctl)](https://github.com/djburkhart/kdlctl/blob/main/go.mod)
 [![GitHub release](https://img.shields.io/github/v/release/djburkhart/kdlctl)](https://github.com/djburkhart/kdlctl/releases)
+[![Coverage Status](https://coveralls.io/repos/github/djburkhart/kdlctl/badge.svg?branch=main)](https://coveralls.io/github/djburkhart/kdlctl?branch=main)
 [![Go Report Card](https://goreportcard.com/badge/github.com/djburkhart/kdlctl)](https://goreportcard.com/report/github.com/djburkhart/kdlctl)
 [![Go Reference](https://pkg.go.dev/badge/github.com/djburkhart/kdlctl.svg)](https://pkg.go.dev/github.com/djburkhart/kdlctl)
 
-`kdlctl` is a Go CLI for deploying apps and microservices to Google Cloud from a KDL-based deployment file. The initial release focuses on Cloud Run deployments through Cloud Build, with built-in NATS utilities and GitHub integration hooks for GitOps workflows.
+`kdlctl` is a Go CLI for deploying apps and microservices to Google Cloud from a KDL-based deployment file. It supports Cloud Run, gRPC and Caddy workloads, managed platform resources, Cloud Build-based deploy orchestration, and testable NATS/GitHub integration hooks for GitOps-style workflows.
 
 - Changelog: [`CHANGELOG.md`](./CHANGELOG.md)
 - Releases: [GitHub Releases](https://github.com/djburkhart/kdlctl/releases)
+- Next release prep: **`v0.2.1`** is staged in `CHANGELOG.md`
 
 ## Features
 
@@ -24,7 +26,9 @@
 
 ```text
 kdlctl/
+├── .github/workflows
 ├── cmd/kdlctl
+├── examples/{complex,invalid,valid}
 ├── internal/cli
 ├── internal/config
 ├── internal/deploy
@@ -32,8 +36,10 @@ kdlctl/
 ├── internal/github
 ├── internal/nats
 ├── internal/templates
+├── CHANGELOG.md
+├── LICENSE
+├── Makefile
 ├── pkg/types
-├── examples/deploy.kdl
 ├── cloudbuild.yaml
 └── README.md
 ```
@@ -52,6 +58,26 @@ kdlctl/
 ```powershell
 go install github.com/djburkhart/kdlctl/cmd/kdlctl@latest
 ```
+
+## Testing
+
+- Coverage target: start with **70%+** across `internal/` and `pkg/`
+- Current focused coverage work has raised key packages well beyond that floor, with full coverage already reached in `internal/github` and `pkg/types`
+- Fixture variants live under `examples\valid\deploy.kdl`, `examples\invalid\deploy.kdl`, and `examples\complex\deploy.kdl`
+- `testify` powers assertions and `testify/mock`-based NATS and GCP client tests so the suite does not need live credentials
+- GitHub Actions uploads `coverage.out` to Coveralls on pushes and pull requests for repo coverage tracking and PR feedback
+
+```powershell
+make test
+make test-race
+```
+
+## CI and releases
+
+- `.github\workflows\test.yml` runs `go test -parallel 4`, enforces the coverage floor, and uploads coverage to Coveralls
+- `.github\workflows\codeql.yml` uses the Node 24-compatible CodeQL action line
+- `.github\workflows\release.yml` builds tagged release archives and publishes GitHub Releases from `v*` tags
+- `CHANGELOG.md` is the release-notes source of truth; the next prepared release entry is `v0.2.1`
 
 ## Example config
 
@@ -139,3 +165,4 @@ go run ./cmd/kdlctl nats subscribe --subject deploy.status.prod.>
 - `status --env <env>` listens on `deploy.status.<env>.>` over NATS.
 - Environment inheritance is supported with `extends="<base-env>"`.
 - Pushing a `v*` tag triggers the GitHub release workflow, which runs tests, builds release archives, and publishes a GitHub Release using the matching `CHANGELOG.md` entry.
+- The main test workflow runs `go test -parallel 4` with a 70% coverage gate over `internal/...` and `pkg/...`.

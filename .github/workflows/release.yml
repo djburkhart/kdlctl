@@ -14,6 +14,9 @@ on:
 permissions:
   contents: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   release:
     name: Build and publish release
@@ -41,7 +44,7 @@ jobs:
           echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
 
       - name: Run tests
-        run: go test ./...
+        run: go test -parallel 4 ./...
 
       - name: Build release archives
         shell: bash
@@ -109,12 +112,17 @@ jobs:
           fi
 
       - name: Publish GitHub release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.release_meta.outputs.tag }}
-          generate_release_notes: false
-          body_path: dist/release-notes.md
-          files: |
-            dist/*.tar.gz
-            dist/*.zip
-            dist/checksums.txt
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release_meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          assets=(dist/*.tar.gz dist/*.zip dist/checksums.txt)
+
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release edit "${TAG}" --title "${TAG}" --notes-file dist/release-notes.md
+            gh release upload "${TAG}" "${assets[@]}" --clobber
+          else
+            gh release create "${TAG}" "${assets[@]}" --title "${TAG}" --notes-file dist/release-notes.md
+          fi

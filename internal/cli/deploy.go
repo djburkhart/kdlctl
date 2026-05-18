@@ -12,7 +12,6 @@ import (
 
 	"github.com/djburkhart/kdlctl/internal/deploy"
 	"github.com/djburkhart/kdlctl/internal/gcp"
-	kdlnats "github.com/djburkhart/kdlctl/internal/nats"
 )
 
 type deployEvent struct {
@@ -71,7 +70,7 @@ func loadDeployPlan(environment, service string) (*deploy.DeploymentPlan, error)
 }
 
 func publishDeployRequest(ctx context.Context, out io.Writer, plan *deploy.DeploymentPlan, subject string) error {
-	client, err := kdlnats.NewClient(viper.GetString("nats-url"))
+	client, err := newNATSClient(viper.GetString("nats-url"))
 	if err != nil {
 		return err
 	}
@@ -108,7 +107,7 @@ func deployTargetNames(plan *deploy.DeploymentPlan) []string {
 }
 
 func submitDeployPlan(ctx context.Context, out io.Writer, plan *deploy.DeploymentPlan, async bool) error {
-	buildClient, err := gcp.NewCloudBuildClient(ctx)
+	buildClient, err := newCloudBuildClient(ctx)
 	if err != nil {
 		return err
 	}
@@ -121,7 +120,7 @@ func submitDeployPlan(ctx context.Context, out io.Writer, plan *deploy.Deploymen
 	return submitResourceDeploys(ctx, out, buildClient, plan, async)
 }
 
-func submitServiceDeploys(ctx context.Context, out io.Writer, buildClient *gcp.CloudBuildClient, plan *deploy.DeploymentPlan, async bool) error {
+func submitServiceDeploys(ctx context.Context, out io.Writer, buildClient cloudBuildClient, plan *deploy.DeploymentPlan, async bool) error {
 	for _, svc := range plan.Services {
 		result, err := buildClient.SubmitCloudRunBuild(ctx, gcp.BuildRequest{
 			ProjectID:   plan.ProjectID,
@@ -141,7 +140,7 @@ func submitServiceDeploys(ctx context.Context, out io.Writer, buildClient *gcp.C
 	return nil
 }
 
-func submitResourceDeploys(ctx context.Context, out io.Writer, buildClient *gcp.CloudBuildClient, plan *deploy.DeploymentPlan, async bool) error {
+func submitResourceDeploys(ctx context.Context, out io.Writer, buildClient cloudBuildClient, plan *deploy.DeploymentPlan, async bool) error {
 	for _, resource := range plan.Resources {
 		result, err := buildClient.SubmitManagedResourceBuild(ctx, gcp.ResourceBuildRequest{
 			ProjectID:   plan.ProjectID,

@@ -6,11 +6,26 @@ import (
 
 	run "cloud.google.com/go/run/apiv2"
 	runpb "cloud.google.com/go/run/apiv2/runpb"
+	"github.com/googleapis/gax-go/v2"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 )
 
 type RunClient struct {
+	client runServiceAPI
+}
+
+type runServiceClientWrapper struct {
 	client *run.ServicesClient
+}
+
+type runServiceAPI interface {
+	Close() error
+	GetService(ctx context.Context, req *runpb.GetServiceRequest, opts ...gax.CallOption) (*runpb.Service, error)
+	UpdateService(ctx context.Context, req *runpb.UpdateServiceRequest, opts ...gax.CallOption) (runUpdateOperation, error)
+}
+
+type runUpdateOperation interface {
+	Wait(ctx context.Context, opts ...gax.CallOption) (*runpb.Service, error)
 }
 
 func NewRunClient(ctx context.Context) (*RunClient, error) {
@@ -19,7 +34,19 @@ func NewRunClient(ctx context.Context) (*RunClient, error) {
 		return nil, fmt.Errorf("create cloud run client: %w", err)
 	}
 
-	return &RunClient{client: client}, nil
+	return &RunClient{client: &runServiceClientWrapper{client: client}}, nil
+}
+
+func (w *runServiceClientWrapper) Close() error {
+	return w.client.Close()
+}
+
+func (w *runServiceClientWrapper) GetService(ctx context.Context, req *runpb.GetServiceRequest, opts ...gax.CallOption) (*runpb.Service, error) {
+	return w.client.GetService(ctx, req, opts...)
+}
+
+func (w *runServiceClientWrapper) UpdateService(ctx context.Context, req *runpb.UpdateServiceRequest, opts ...gax.CallOption) (runUpdateOperation, error) {
+	return w.client.UpdateService(ctx, req, opts...)
 }
 
 func (c *RunClient) Close() error {

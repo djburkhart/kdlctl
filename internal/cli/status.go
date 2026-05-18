@@ -9,8 +9,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/djburkhart/kdlctl/internal/gcp"
-	kdlnats "github.com/djburkhart/kdlctl/internal/nats"
 )
 
 func newStatusCmd() *cobra.Command {
@@ -29,7 +27,7 @@ func newStatusCmd() *cobra.Command {
 					return err
 				}
 
-				client, err := gcp.NewCloudBuildClient(cmd.Context())
+				client, err := newCloudBuildClient(cmd.Context())
 				if err != nil {
 					return err
 				}
@@ -43,7 +41,7 @@ func newStatusCmd() *cobra.Command {
 				_, err = fmt.Fprintf(cmd.OutOrStdout(), "Build %s: %s %s\n", result.ID, result.Status, result.LogURL)
 				return err
 			case environment != "":
-				client, err := kdlnats.NewClient(viper.GetString("nats-url"))
+				client, err := newNATSClient(viper.GetString("nats-url"))
 				if err != nil {
 					return err
 				}
