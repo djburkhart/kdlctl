@@ -807,17 +807,24 @@ func TestStatusCommandWriteErrors(t *testing.T) {
 
 	t.Run("nats output", func(t *testing.T) {
 		mockClient := &mockNATSClient{}
+		handlerErr := errors.New("boom")
+		returnedErr := handlerErr
 		mockClient.On("Subscribe", mock.Anything, "deploy.status.dev.>", 1, mock.Anything).Run(func(args mock.Arguments) {
 			handler := args.Get(3).(func(*nats.Msg) error)
 			err := handler(&nats.Msg{Subject: "deploy.status.dev.api", Data: []byte("ready")})
 			require.Error(t, err)
-		}).Return(nil).Once()
+			assert.ErrorContains(t, err, "boom")
+			returnedErr = err
+		}).Return(func(context.Context, string, int, func(*nats.Msg) error) error {
+			return returnedErr
+		}).Once()
 		mockClient.On("Close").Return().Once()
 		newNATSClient = func(string) (natsClient, error) { return mockClient, nil }
 		viper.Set("nats-url", "nats://fixture:4222")
 
 		err := executeSpecificCommand(t, newStatusCmd(), "--env", "dev")
-		require.NoError(t, err)
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "boom")
 		mockClient.AssertExpectations(t)
 	})
 }
