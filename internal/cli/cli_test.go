@@ -37,6 +37,9 @@ func (m *mockNATSClient) Publish(ctx context.Context, subject string, payload []
 
 func (m *mockNATSClient) Subscribe(ctx context.Context, subject string, count int, handler func(*nats.Msg) error) error {
 	args := m.Called(ctx, subject, count, handler)
+	if fn, ok := args.Get(0).(func(context.Context, string, int, func(*nats.Msg) error) error); ok {
+		return fn(ctx, subject, count, handler)
+	}
 	return args.Error(0)
 }
 
@@ -1040,7 +1043,7 @@ func TestNATSSubscribeCommandHandlerWriteError(t *testing.T) {
 	resetCLIState(t)
 
 	mockClient := &mockNATSClient{}
-	mockClient.On("Subscribe", mock.Anything, "fixtures.subscribe", 1, mock.Anything).RunAndReturn(
+	mockClient.On("Subscribe", mock.Anything, "fixtures.subscribe", 1, mock.Anything).Return(
 		func(_ context.Context, _ string, _ int, handler func(*nats.Msg) error) error {
 			err := handler(&nats.Msg{Subject: "fixtures.subscribe", Data: []byte("payload")})
 			require.Error(t, err)
@@ -1052,7 +1055,7 @@ func TestNATSSubscribeCommandHandlerWriteError(t *testing.T) {
 
 	err := executeSpecificCommand(t, newNATSSubscribeCmd(), "--subject", "fixtures.subscribe", "--count", "1")
 	require.Error(t, err)
-	assert.ErrorContains(t, err, "write")
+	assert.ErrorContains(t, err, "boom")
 	mockClient.AssertExpectations(t)
 }
 
