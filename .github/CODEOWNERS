@@ -1,0 +1,19 @@
+# Default ownership for the repository.
+* @djburkhart
+
+# GitHub configuration and automation.
+/.github/ @djburkhart
+
+# Source code and templates.
+/cmd/ @djburkhart
+/internal/ @djburkhart
+/pkg/ @djburkhart
+/examples/ @djburkhart
+
+# Top-level project metadata and docs.
+/README.md @djburkhart
+/CHANGELOG.md @djburkhart
+/LICENSE @djburkhart
+/Makefile @djburkhart
+/go.mod @djburkhart
+/go.sum @djburkhart
