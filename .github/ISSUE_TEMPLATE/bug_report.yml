@@ -1,0 +1,51 @@
+name: Bug report
+description: Report a reproducible problem with kdlctl
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a problem.
+        Please include enough detail for us to reproduce the issue quickly.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the problem and the impact.
+      placeholder: The deploy command fails when...
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Share the exact steps, commands, or config needed to reproduce the issue.
+      placeholder: |
+        1. Run `kdlctl validate`
+        2. Use this deploy.kdl...
+        3. See error...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      placeholder: kdlctl should validate the config successfully.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include your OS, Go version if relevant, and the kdlctl version or commit.
+      placeholder: Windows 11, Go 1.25.x, kdlctl v0.1.1
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant output
+      description: Paste logs, stack traces, or screenshots if they help.
+      render: shell

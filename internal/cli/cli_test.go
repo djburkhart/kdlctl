@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -151,7 +152,7 @@ func TestInitCommandCreatesStarterFiles(t *testing.T) {
 
 	output, err := executeCommand(t, "init")
 	require.NoError(t, err)
-	assert.Contains(t, output, "Created deploy.kdl, cloudbuild.yaml, and examples\\deploy.kdl")
+	assert.Contains(t, output, fmt.Sprintf("Created deploy.kdl, cloudbuild.yaml, and %s", filepath.Join("examples", "deploy.kdl")))
 	assert.FileExists(t, filepath.Join(tempDir, "deploy.kdl"))
 	assert.FileExists(t, filepath.Join(tempDir, "cloudbuild.yaml"))
 	assert.FileExists(t, filepath.Join(tempDir, "examples", "deploy.kdl"))

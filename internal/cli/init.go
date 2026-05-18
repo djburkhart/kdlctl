@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -17,7 +18,7 @@ func newInitCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			deployFile := "deploy.kdl"
 			cloudBuildFile := "cloudbuild.yaml"
-			exampleFile := "examples\\deploy.kdl"
+			exampleFile := filepath.Join("examples", "deploy.kdl")
 
 			for _, path := range []string{deployFile, cloudBuildFile, exampleFile} {
 				if err := ensureFileDoesNotExist(path, force); err != nil {
@@ -35,7 +36,7 @@ func newInitCmd() *cobra.Command {
 				return err
 			}
 
-			_, err := fmt.Fprintln(cmd.OutOrStdout(), "Created deploy.kdl, cloudbuild.yaml, and examples\\deploy.kdl")
+			_, err := fmt.Fprintf(cmd.OutOrStdout(), "Created %s, %s, and %s\n", deployFile, cloudBuildFile, exampleFile)
 			return err
 		},
 	}

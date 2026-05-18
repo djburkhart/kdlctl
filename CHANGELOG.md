@@ -7,6 +7,17 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [v0.2.2] - 2026-05-17
+
+### Added
+
+- Added a repository health baseline with issue templates, a pull request template, contributing guidance, a code of conduct, support guidance, a security policy, and Dependabot updates for Go modules and GitHub Actions.
+- Added a proper `.gitignore` for Go build outputs, coverage artifacts, local environment files, and common editor and OS noise.
+
+### Fixed
+
+- Fixed `kdlctl init` to create `examples/deploy.kdl` using platform-correct path handling so the starter file workflow works on Linux runners as well as Windows.
+
 ## [v0.2.1] - 2026-05-17
 
 ### Added
