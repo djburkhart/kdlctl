@@ -1,0 +1,120 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Semantic version tag to release (for example: v0.1.1)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Resolve release tag
+        id: release_meta
+        shell: bash
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            tag="${{ github.event.inputs.tag }}"
+          else
+            tag="${GITHUB_REF_NAME}"
+          fi
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Build release archives
+        shell: bash
+        env:
+          TAG: ${{ steps.release_meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          version="${TAG#v}"
+          targets=(
+            "linux amd64 tar.gz"
+            "linux arm64 tar.gz"
+            "darwin amd64 tar.gz"
+            "darwin arm64 tar.gz"
+            "windows amd64 zip"
+            "windows arm64 zip"
+          )
+
+          for target in "${targets[@]}"; do
+            read -r goos goarch archive <<< "${target}"
+            artifact="kdlctl_${version}_${goos}_${goarch}"
+            build_dir="dist/${artifact}"
+            mkdir -p "${build_dir}"
+
+            binary_name="kdlctl"
+            if [[ "${goos}" == "windows" ]]; then
+              binary_name="kdlctl.exe"
+            fi
+
+            GOOS="${goos}" GOARCH="${goarch}" CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "${build_dir}/${binary_name}" ./cmd/kdlctl
+            cp README.md LICENSE CHANGELOG.md "${build_dir}/"
+
+            if [[ "${archive}" == "zip" ]]; then
+              (
+                cd dist
+                zip -rq "${artifact}.zip" "${artifact}"
+              )
+            else
+              tar -C dist -czf "dist/${artifact}.tar.gz" "${artifact}"
+            fi
+
+            rm -rf "${build_dir}"
+          done
+
+          (
+            cd dist
+            sha256sum *.tar.gz *.zip > checksums.txt
+          )
+
+      - name: Extract release notes
+        shell: bash
+        env:
+          TAG: ${{ steps.release_meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          awk -v tag="${TAG}" '
+            $0 ~ "^## \\[" tag "\\] - " { printing=1 }
+            printing && $0 ~ "^## \\[" && $0 !~ "^## \\[" tag "\\] - " { exit }
+            printing { print }
+          ' CHANGELOG.md > dist/release-notes.md
+
+          if [[ ! -s dist/release-notes.md ]]; then
+            echo "Release notes for ${TAG} were not found in CHANGELOG.md" >&2
+            exit 1
+          fi
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release_meta.outputs.tag }}
+          generate_release_notes: false
+          body_path: dist/release-notes.md
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/checksums.txt

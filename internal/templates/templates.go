@@ -31,6 +31,67 @@ const ExampleDeployKDL = `project "demo-gcp-project" region="us-central1" {
             }
         }
 
+        grpc-server "payments-grpc" {
+            image "us-central1-docker.pkg.dev/demo-gcp-project/apps/payments-grpc:latest"
+            cpu 2
+            memory "1Gi"
+            port 8443
+            min-instances 1
+            max-instances 25
+            concurrency 120
+            env {
+                LOG_LEVEL "info"
+                GRPC_REFLECTION "enabled"
+            }
+        }
+
+        caddy-server "edge-caddy" {
+            image "us-central1-docker.pkg.dev/demo-gcp-project/apps/caddy-edge:latest"
+            cpu 1
+            memory "512Mi"
+            port 8080
+            min-instances 1
+            max-instances 10
+            concurrency 200
+            env {
+                CADDY_CONFIG "/etc/caddy/Caddyfile"
+            }
+        }
+
+        cloud-sql "primary-db" {
+            database-version "POSTGRES_16"
+            tier "db-custom-1-3840"
+            availability-type "REGIONAL"
+            storage-gb 50
+        }
+
+        redis "sessions-cache" {
+            tier "STANDARD_HA"
+            memory-gb 2
+            redis-version "REDIS_7_0"
+        }
+
+        pubsub-topic "app-events" {
+            retention "604800s"
+            labels {
+                env "prod"
+                service "api"
+            }
+        }
+
+        logging-bucket "application-logs" {
+            location "global"
+            retention-days 30
+            description "Application log retention bucket"
+        }
+
+        logging-sink "error-export" {
+            destination "logging.googleapis.com/projects/demo-gcp-project/locations/global/buckets/application-logs"
+            filter "severity>=ERROR"
+            description "Export application errors"
+            unique-writer-identity #true
+        }
+
         nats {
             cluster "nats-prod" {
                 replicas 3
@@ -45,6 +106,14 @@ const ExampleDeployKDL = `project "demo-gcp-project" region="us-central1" {
         cloud-run "api-service" {
             image "us-central1-docker.pkg.dev/demo-gcp-project/apps/api-service:staging"
             max-instances 5
+        }
+
+        caddy-server "edge-caddy" {
+            image "us-central1-docker.pkg.dev/demo-gcp-project/apps/caddy-edge:staging"
+        }
+
+        logging-sink "error-export" {
+            filter "severity>=WARNING"
         }
     }
 }
