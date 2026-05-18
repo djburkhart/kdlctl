@@ -7,10 +7,20 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [v0.2.3] - 2026-05-18
 
+### Added
+
+- Added a Hugo-based documentation website under `docs/` using the Doks theme, with branded `kdlctl` landing, guides, reference pages, resources, and GitHub Pages deployment automation.
+- Added docs workflow helpers in the `Makefile` and repository ownership coverage for `/docs/`.
+
 ### Changed
 
 - Expanded unit coverage again across the CLI, config loader, and GCP client packages, raising local package coverage to `internal/cli 96.3%`, `internal/config 97.5%`, and `internal/gcp 93.4%`, with `cmd/kdlctl`, `internal/github`, and `pkg/types` now covered at `100%`.
 - Added small constructor and command-entry seams so CLI root execution and GCP client setup paths can be exercised directly in tests without changing runtime behavior.
+- Updated the docs toolchain so `docs\\npm run dev` and `docs\\npm run build` use a repo-managed `hugo-extended` dependency instead of requiring a global Hugo install.
+
+### Fixed
+
+- Fixed the docs site `Start deploying` CTA and related production pathing by correcting the Hugo `baseURL` overrides used for GitHub Pages builds.
 
 ### Testing
 

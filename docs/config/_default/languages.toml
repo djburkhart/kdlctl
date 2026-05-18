@@ -1,0 +1,8 @@
+[en]
+  label = "English"
+  contentDir = "content"
+  weight = 10
+  [en.params]
+    languageISO = "EN"
+    languageTag = "en-US"
+    footer = 'Built for <a class="text-muted" href="https://github.com/djburkhart/kdlctl">kdlctl</a> with Hugo and Doks.'

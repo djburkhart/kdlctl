@@ -11,6 +11,7 @@
 `kdlctl` is a Go CLI for deploying apps and microservices to Google Cloud from a KDL-based deployment file. It supports Cloud Run, gRPC and Caddy workloads, managed platform resources, Cloud Build-based deploy orchestration, and testable NATS/GitHub integration hooks for GitOps-style workflows.
 
 - Changelog: [`CHANGELOG.md`](./CHANGELOG.md)
+- Docs: [`docs/`](./docs) and GitHub Pages at `https://djburkhart.github.io/kdlctl/`
 - Releases: [GitHub Releases](https://github.com/djburkhart/kdlctl/releases)
 - Next release prep: **`v0.2.1`** is staged in `CHANGELOG.md`
 
@@ -70,6 +71,18 @@ go install github.com/djburkhart/kdlctl/cmd/kdlctl@latest
 ```powershell
 make test
 make test-race
+```
+
+## Documentation site
+
+`kdlctl` now includes a Hugo docs site powered by the Doks theme under [`docs/`](./docs).
+
+Local docs development expects **Node.js 24**. The docs package installs **Hugo Extended** through npm.
+
+```powershell
+make docs-install
+make docs-dev
+make docs-build
 ```
 
 ## CI and releases

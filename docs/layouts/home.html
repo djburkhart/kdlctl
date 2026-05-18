@@ -1,0 +1,66 @@
+{{ define "main" }}
+<section class="section container-fluid mt-n3 pb-5">
+  <div class="row align-items-center justify-content-between g-4">
+    <div class="col-lg-6">
+      <p class="text-uppercase fw-semibold text-muted mb-2">Google Cloud deployment docs</p>
+      <h1>{{ .Title }}</h1>
+      <p class="lead">{{ .Params.lead | safeHTML }}</p>
+      <div class="d-flex flex-wrap gap-2">
+        <a class="btn btn-primary btn-cta rounded-pill btn-lg" href="{{ relLangURL "docs/guides/getting-started/" }}" role="button">Get started</a>
+        <a class="btn btn-outline-secondary rounded-pill btn-lg" href="https://github.com/djburkhart/kdlctl" role="button">View source</a>
+      </div>
+    </div>
+    <div class="col-lg-5 text-center text-lg-end">
+      <img class="img-fluid home-logo" src="{{ "images/kdlctl-logo.jpg" | relURL }}" alt="kdlctl logo">
+    </div>
+    <div class="col-lg-10">
+      {{ .Content }}
+    </div>
+  </div>
+</section>
+{{ end }}
+
+{{ define "sidebar-prefooter" }}
+  {{ if site.Params.doks.backgroundDots -}}
+  <div class="d-flex justify-content-start">
+    <div class="bg-dots"></div>
+  </div>
+  {{ end -}}
+  {{ if eq $.Site.Language.Label "English" }}
+  <section class="section section-md section-features">
+    <div class="container">
+      <div class="row justify-content-center text-center">
+        <div class="col-lg-5">
+          <h2 class="h4">KDL as the source of truth</h2>
+          <p>Model environments, Cloud Run services, gRPC/Caddy targets, databases, caching, messaging, and logging in one deployment file.</p>
+        </div>
+        <div class="col-lg-5">
+          <h2 class="h4">Deploy through Cloud Build</h2>
+          <p>Validate configs, preview plans, and submit reproducible builds for workloads and managed resources without hand-assembling scripts.</p>
+        </div>
+        <div class="col-lg-5">
+          <h2 class="h4">Operate with confidence</h2>
+          <p>Track build status, use NATS-driven workflows when needed, and roll back Cloud Run traffic to a known-good revision.</p>
+        </div>
+        <div class="col-lg-5">
+          <h2 class="h4">Reference and examples included</h2>
+          <p>Use the guides, schema reference, command reference, and example configuration to get from zero to deploy quickly.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+  {{ end }}
+{{ end }}
+
+{{ define "sidebar-footer" }}
+{{ if site.Params.doks.sectionFooter -}}
+<section class="section section-md container-fluid bg-light">
+  <div class="row justify-content-center text-center">
+    <div class="col-lg-7">
+      <h2 class="mt-2">Ship your next service with kdlctl</h2>
+      <a class="btn btn-primary rounded-pill px-4 my-2" href="{{ relLangURL "docs/guides/getting-started/" }}" role="button">Open the guides</a>
+    </div>
+  </div>
+</section>
+{{ end -}}
+{{ end }}

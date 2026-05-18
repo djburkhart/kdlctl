@@ -15,5 +15,6 @@
 /CHANGELOG.md @djburkhart
 /LICENSE @djburkhart
 /Makefile @djburkhart
+/docs/ @djburkhart
 /go.mod @djburkhart
 /go.sum @djburkhart
