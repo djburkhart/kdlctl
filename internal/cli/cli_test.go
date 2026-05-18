@@ -1040,16 +1040,19 @@ func TestNATSSubscribeCommandHandlerWriteError(t *testing.T) {
 	resetCLIState(t)
 
 	mockClient := &mockNATSClient{}
-	mockClient.On("Subscribe", mock.Anything, "fixtures.subscribe", 1, mock.Anything).Run(func(args mock.Arguments) {
-		handler := args.Get(3).(func(*nats.Msg) error)
-		err := handler(&nats.Msg{Subject: "fixtures.subscribe", Data: []byte("payload")})
-		require.Error(t, err)
-	}).Return(nil).Once()
+	mockClient.On("Subscribe", mock.Anything, "fixtures.subscribe", 1, mock.Anything).RunAndReturn(
+		func(_ context.Context, _ string, _ int, handler func(*nats.Msg) error) error {
+			err := handler(&nats.Msg{Subject: "fixtures.subscribe", Data: []byte("payload")})
+			require.Error(t, err)
+			return err
+		},
+	).Once()
 	mockClient.On("Close").Return().Once()
 	newNATSClient = func(string) (natsClient, error) { return mockClient, nil }
 
 	err := executeSpecificCommand(t, newNATSSubscribeCmd(), "--subject", "fixtures.subscribe", "--count", "1")
-	require.NoError(t, err)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "write")
 	mockClient.AssertExpectations(t)
 }
 
