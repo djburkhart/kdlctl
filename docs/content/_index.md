@@ -15,4 +15,4 @@ params:
 
 `kdlctl` turns a `deploy.kdl` file into a repeatable Google Cloud deployment workflow. Use it to validate configs, preview plans, submit Cloud Build jobs, deploy Cloud Run workloads, provision managed resources, publish NATS events, and roll back services when you need to recover quickly.
 
-The docs site covers installation, first deploys, migration guidance, the supported KDL schema, command reference, and the repo links you need for releases, coverage, CI, and API reference.
+The docs site covers installation, first deploys, migration guidance, the supported KDL schema, command reference, and the repo links you need for releases, coverage, CI, and API reference. For the system-level diagram, see the [Architecture Overview]({{< relref "/docs/guides/architecture-overview.md" >}}) guide.

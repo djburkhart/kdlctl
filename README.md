@@ -7,8 +7,11 @@
 [![Coverage Status](https://coveralls.io/repos/github/djburkhart/kdlctl/badge.svg?branch=main)](https://coveralls.io/github/djburkhart/kdlctl?branch=main)
 [![Go Report Card](https://goreportcard.com/badge/github.com/djburkhart/kdlctl)](https://goreportcard.com/report/github.com/djburkhart/kdlctl)
 [![Go Reference](https://pkg.go.dev/badge/github.com/djburkhart/kdlctl.svg)](https://pkg.go.dev/github.com/djburkhart/kdlctl)
+[![Matrix](https://img.shields.io/matrix/kdlctl:matrix.org?server_fqdn=matrix.org&label=Matrix)](https://matrix.to/#/#kdlctl:matrix.org)
 
 `kdlctl` is a Go CLI for deploying apps and microservices to Google Cloud from a KDL-based deployment file. It supports Cloud Run, gRPC and Caddy workloads, managed platform resources, Cloud Build-based deploy orchestration, and testable NATS/GitHub integration hooks for GitOps-style workflows.
+
+![kdlctl overview](./Overview.png)
 
 - Changelog: [`CHANGELOG.md`](./CHANGELOG.md)
 - Docs: [`docs/`](./docs) and GitHub Pages at `https://djburkhart.github.io/kdlctl/`

@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.2.4] - 2026-05-19
+
+### Added
+
+- Added a dedicated `Architecture Overview` guide to the docs site with the repository overview diagram moved into guide content instead of the homepage.
+
+### Changed
+
+- Updated the README with a Matrix badge and embedded the repository overview diagram.
+- Updated the docs homepage to link to the new architecture guide rather than rendering the overview image inline.
+
+### Fixed
+
+- Fixed the GitHub Actions test job name so it reports the required `Strict Mode` status check expected by the repository ruleset.
+- Fixed docs image path handling for the overview diagram so it resolves correctly under the GitHub Pages `/kdlctl/` base path.
+
 ## [v0.2.3] - 2026-05-18
 
 ### Added
