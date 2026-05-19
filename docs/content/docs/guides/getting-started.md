@@ -107,6 +107,6 @@ kdlctl rollback --env prod --service api-service --revision api-service-00012-ab
 
 ## Next steps
 
-- Read the [deploy.kdl schema reference](/docs/reference/deploy-kdl-schema/)
-- Review the [CLI command reference](/docs/reference/cli-commands/)
+- Read the [deploy.kdl schema reference](../reference/deploy-kdl-schema/)
+- Review the [CLI command reference](../reference/cli-commands/)
 - Start from the checked-in [`examples/deploy.kdl`](https://github.com/djburkhart/kdlctl/blob/main/examples/deploy.kdl)

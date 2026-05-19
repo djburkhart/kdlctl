@@ -45,7 +45,7 @@ When you want async coordination between systems, `kdlctl` can publish deploymen
 
 ```powershell
 kdlctl deploy --env prod --via-nats
-kdlctl nats publish --subject deploy.requested '{\"env\":\"prod\"}'
+kdlctl nats publish --subject deploy.requested '{"env":"prod"}'
 kdlctl nats subscribe --subject deploy.status.prod.>
 ```
 

@@ -11,7 +11,7 @@
   command = """\
   git config core.quotepath false && \
   npm install && \
-  hugo build --gc --minify --baseURL "${URL}"
+  hugo --gc --minify --baseURL "${URL}"
   """
 
 [dev]
