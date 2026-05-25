@@ -57,7 +57,7 @@ jobs:
         run: npm run build -- --baseURL "${{ steps.pages.outputs.base_url }}/"
 
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@v5
         with:
           path: docs/public
 
